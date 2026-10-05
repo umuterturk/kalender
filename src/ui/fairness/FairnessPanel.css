@@ -1,0 +1,118 @@
+.fairness-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.fairness-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.fairness-window-label {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.fairness-incomplete-note {
+  color: var(--warn);
+  background: var(--warn-soft);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.fairness-window-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.fairness-window-tabs .side-tab {
+  flex: 0 1 auto;
+  padding: 6px 10px;
+}
+
+.fairness-legend {
+  line-height: 1.4;
+}
+
+.person-fairness-card {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.person-fairness-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.person-fairness-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px rgba(11, 122, 110, 0.12);
+}
+
+.pf-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.pf-name {
+  font-weight: var(--weight-bold);
+  font-size: var(--text-sm);
+}
+
+.dev-badge {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-left: auto;
+}
+.dev-badge.under    { background: var(--ok-soft); color: var(--ok); }
+.dev-badge.over     { background: var(--warn-soft); color: var(--warn); }
+.dev-badge.balanced { background: var(--surface-2); color: var(--ink-2); }
+
+.fairness-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.fairness-table th {
+  text-align: right;
+  color: var(--ink-3);
+  font-weight: var(--weight-semibold);
+  padding: 4px var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.fairness-table th:first-child { text-align: left; }
+
+.fairness-table td {
+  text-align: right;
+  padding: 4px var(--space-1);
+  color: var(--ink-2);
+}
+
+.fairness-table td:first-child { text-align: left; }
+.fairness-table td.mono { font-family: var(--font-mono); }
+
+.remainder.under { color: var(--ok); }
+.remainder.over  { color: var(--warn); }

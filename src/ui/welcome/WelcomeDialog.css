@@ -1,0 +1,114 @@
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(15, 28, 36, 0.52);
+  animation: welcome-fade var(--dur) var(--ease-out);
+}
+
+@keyframes welcome-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.welcome-dialog {
+  width: min(100%, 440px);
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: welcome-pop var(--dur-slow) var(--ease-out);
+}
+
+@keyframes welcome-pop {
+  from { transform: translateY(12px) scale(0.98); opacity: 0.85; }
+  to { transform: none; opacity: 1; }
+}
+
+.welcome-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.welcome-brand {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.welcome-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.welcome-lead {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.welcome-points {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.welcome-points li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.welcome-points strong {
+  font-size: var(--text-sm);
+  color: var(--accent-ink);
+}
+
+.welcome-points span {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.welcome-cta {
+  margin-top: var(--space-2);
+  width: 100%;
+}
+
+.app-boot {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--ink-3);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: var(--text-sm);
+}

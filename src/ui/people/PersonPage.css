@@ -1,0 +1,82 @@
+.person-page {
+  padding: clamp(1rem, 3vw, 2rem);
+  animation: workspace-in var(--dur-slow) var(--ease-out);
+}
+
+.name-field {
+  margin-top: var(--space-2);
+}
+
+.name-input {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  max-width: 420px;
+}
+
+.person-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 640px;
+}
+
+.person-section {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.membership-edit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: end;
+}
+
+.membership-through {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.leave-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--danger-soft);
+  border-radius: var(--radius-md);
+}
+
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.btn-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.fields-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .membership-edit,
+  .fields-row {
+    grid-template-columns: 1fr;
+  }
+}
