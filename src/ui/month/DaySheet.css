@@ -16,6 +16,32 @@
   letter-spacing: -0.02em;
 }
 
+.day-conflict-notes {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.day-conflict-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid rgba(194, 48, 58, 0.15);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: 1.4;
+}
+
+.day-conflict-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 .day-meta {
   margin-top: var(--space-1);
   display: flex;
@@ -40,6 +66,46 @@
   background: var(--surface-2);
   color: var(--ink-2);
   border: 1px solid var(--border);
+}
+
+.day-holiday-name {
+  font-size: var(--text-xs);
+  color: var(--holiday);
+  font-weight: var(--weight-semibold);
+}
+
+.day-type-title {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.day-type-help {
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.day-holiday-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.day-holiday-mark input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--holiday);
+  cursor: pointer;
 }
 
 .past-day-warning {

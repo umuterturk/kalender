@@ -1,29 +1,37 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import {
   monthDates, formatMonth, prevMonth, nextMonth, isHoliday,
-  dayOfWeek, holidaySource, formatDateLong, formatDateShort, monthStart, monthEnd, localToday, addDays
+  dayOfWeek, holidaySource, desiredHolidayAction, formatDateLong, formatDateShort, monthStart, monthEnd, localToday, addDays
 } from '../../domain/calendar'
-import { isMemberOn, isOnVacation, isUnavailableOn, hasRestObligationOn, withVacation, withAvoidedDate, withPreferredDate, explainDateBlocks, withPreference, getPreference, hasMonthPreferences, withoutMonthPreferences } from '../../domain/eligibility'
+import { isMemberOn, isOnVacation, isUnavailableOn, hasRestObligationOn, withVacation, withAvoidedDate, explainDateBlocks, withPreference, getPreference, hasMonthPreferences, withoutMonthPreferences } from '../../domain/eligibility'
 import { deriveAssignmentLeaves, deriveActualLeaves, mergeLeaves, previousMonthRestLeaves } from '../../domain/leave'
 import { computeFairness } from '../../domain/fairness'
 import { validateRevision } from '../../domain/validate'
 import { generatePlan } from '../../domain/generate'
 import { resolveMonth } from '../../domain/repair'
-import type { PlanRevision, Assignment, CalendarDateOverride, PreferenceType } from '../../domain/types'
+import type { PlanRevision, Assignment, CalendarDateOverride, PreferenceType, ActualShift, FairnessProjection } from '../../domain/types'
 import { nanoid } from '../../lib/nanoid'
 import { uniqueInitials } from '../../lib/initials'
 import { DaySheet } from './DaySheet'
 import { PeoplePanel } from './PeoplePanel'
 import { FairnessPanel } from '../fairness/FairnessPanel'
+import { FairnessSummary } from '../fairness/FairnessSummary'
 import { ReviewSheet } from '../review/ReviewSheet'
 import { IssuesBar } from './IssuesBar'
 import {
-  IconChevronLeft, IconChevronRight, IconClose, IconHoliday, IconLock, IconMore, IconPrefNo, IconPrefYes, IconPublish, IconTrash, IconVacation, IconWand, IconWarn,
+  IconCalendar, IconChevronLeft, IconChevronRight, IconClose, IconHoliday, IconLock, IconMenu, IconPeople, IconPrefNo, IconPublish, IconTrash, IconVacation, IconWand, IconWarn,
 } from '../icons'
 import { useI18n, type MessageKey } from '../../i18n'
 import './MonthWorkspace.css'
+
+const CONFLICT_NOTE_HINTS: Partial<Record<string, MessageKey>> = {
+  UNAVAILABLE: 'issues.vacationHint',
+  NEXT_DAY_OFF: 'issues.restDayHint',
+  CONSECUTIVE_SHIFT: 'issues.consecutiveHint',
+}
 
 export function MonthWorkspace() {
   const { yyyymm } = useParams<{ yyyymm: string }>()
@@ -56,7 +64,7 @@ export function MonthWorkspace() {
   const [view, setView] = useState<'calendar' | 'people'>('calendar')
   const [sidePanel, setSidePanel] = useState<'fairness' | 'day' | 'people' | 'issues'>('fairness')
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [holidayMode, setHolidayMode] = useState(false)
   const [showReview, setShowReview] = useState(false)
   const [clearMonthOpen, setClearMonthOpen] = useState(false)
@@ -106,6 +114,11 @@ export function MonthWorkspace() {
     )
   }, [month, people, roster, calendarOverrides, actuals, activeRevision, activeDraftLeaves, priorAssignments])
 
+  const fairnessByPerson365 = useMemo(
+    () => new Map((fairness?.projections['365d'] ?? []).map(p => [p.personId, p])),
+    [fairness],
+  )
+
   // Validation
   const validation = useMemo(() => {
     if (!activeRevision || !roster) return null
@@ -116,10 +129,19 @@ export function MonthWorkspace() {
     autoResolveAttempts.current = 0
     resolvedSignatures.current.clear()
     setSheetOpen(false)
-    setMenuOpen(false)
+    setDrawerOpen(false)
     setSelectedDate(null)
     setHighlightedPersonId(null)
   }, [month])
+
+  useEffect(() => {
+    if (!drawerOpen) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') setDrawerOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawerOpen])
 
   const highlightedPerson = highlightedPersonId
     ? people.find(p => p.id === highlightedPersonId) ?? null
@@ -196,7 +218,7 @@ export function MonthWorkspace() {
   if (!roster) {
     return (
       <div className="workspace-empty">
-        {t('month.noRoster')} <a href="/setup">{t('month.setupLink')}</a>
+        {t('month.noRoster')} <a href="/settings">{t('nav.settings')}</a>
       </div>
     )
   }
@@ -309,6 +331,16 @@ export function MonthWorkspace() {
     }
   }
 
+  function handleSetOfficialHoliday(date: string, wantHoliday: boolean) {
+    if (!roster) return
+    const action = desiredHolidayAction(date, roster, calendarOverrides, wantHoliday)
+    if (action.kind === 'set') {
+      dispatch({ type: 'SET_CALENDAR_OVERRIDE', payload: action.override })
+    } else if (action.kind === 'remove') {
+      dispatch({ type: 'REMOVE_CALENDAR_OVERRIDE', payload: date })
+    }
+  }
+
   function ensureDraft(): PlanRevision | null {
     if (!roster) return null
     if (draftRevision) return draftRevision
@@ -365,6 +397,34 @@ export function MonthWorkspace() {
     const assignmentLeaves = deriveAssignmentLeaves(updated.assignments, roster, people)
     const actualLeaves = deriveActualLeaves(actuals, roster, people)
     dispatch({ type: 'SAVE_LEAVES', payload: mergeLeaves(actualLeaves, assignmentLeaves) })
+    recordPastActual(date, personId, base.assignments.find(a => a.date === date))
+  }
+
+  function recordPastActual(date: string, personId: string | null, previous?: Assignment) {
+    if (date >= localToday() || !roster) return
+    const existing = actuals.find(a => a.date === date)
+    if (!personId) {
+      if (!existing) return
+      dispatch({
+        type: 'SAVE_ACTUAL',
+        payload: { ...existing, status: 'cancelled', confirmedAt: new Date().toISOString() },
+      })
+      return
+    }
+    const planned = existing?.plannedPersonId
+      ?? previous?.allocatedTo
+      ?? previous?.personId
+      ?? personId
+    const payload: ActualShift = {
+      id: existing?.id ?? nanoid(),
+      date,
+      plannedPersonId: planned,
+      actualPersonId: personId,
+      status: planned !== personId ? 'substituted' : 'completed',
+      recordedAsHoliday: isHoliday(date, roster, calendarOverrides),
+      confirmedAt: new Date().toISOString(),
+    }
+    dispatch({ type: 'SAVE_ACTUAL', payload })
   }
 
   function handleProhibit(date: string, personId: string, onVacation: boolean) {
@@ -379,13 +439,6 @@ export function MonthWorkspace() {
     const person = people.find(p => p.id === personId)
     if (!person) return
     dispatch({ type: 'UPDATE_PERSON', payload: withAvoidedDate(person, date, avoided) })
-  }
-
-  function handleWant(date: string, personId: string, wanted: boolean) {
-    clearPersonHighlight()
-    const person = people.find(p => p.id === personId)
-    if (!person) return
-    dispatch({ type: 'UPDATE_PERSON', payload: withPreferredDate(person, date, wanted) })
   }
 
   function handleSetPreference(date: string, personId: string, pref: import('../../domain/types').PreferenceType | null) {
@@ -405,7 +458,7 @@ export function MonthWorkspace() {
 
   function openClearMonth() {
     clearPersonHighlight()
-    setMenuOpen(false)
+    setDrawerOpen(false)
     setClearAlsoPrefs(hasMonthPrefs && !hasAutoAssignments)
     setClearMonthOpen(true)
   }
@@ -451,6 +504,7 @@ export function MonthWorkspace() {
       assignments: activeRevision.assignments.filter(a => a.date !== date),
     }
     dispatch({ type: 'SAVE_REVISION', payload: updated })
+    recordPastActual(date, null)
   }
 
   // Build calendar grid (Monday-start)
@@ -515,6 +569,34 @@ export function MonthWorkspace() {
     return true
   })
 
+  const selectedDayConflictNotes = selectedDate
+    ? [
+        ...hardErrorMessages
+          .filter(err => err.date === selectedDate)
+          .map(err => ({ key: err.key, text: err.text })),
+        ...advisoryWarnings
+          .filter(w => w.date === selectedDate && CONFLICT_NOTE_HINTS[w.type])
+          .map(w => {
+            const hint = CONFLICT_NOTE_HINTS[w.type]!
+            const person = w.personId ? people.find(p => p.id === w.personId) : null
+            return {
+              key: `${w.type}-${w.date}-${w.personId ?? ''}`,
+              text: person ? `${person.name}: ${t(hint)}` : t(hint),
+            }
+          }),
+        ...(showImpossibleConflicts && impossibleSet.has(selectedDate)
+          ? [{
+              key: `impossible-${selectedDate}`,
+              text: (() => {
+                const item = impossibleDates.find(d => d.date === selectedDate)
+                const detail = item?.blocks.map(b => `${b.name}: ${b.reason}`).join(' · ')
+                return detail ? `${t('day.noOneAvailable')} ${detail}` : t('day.noOneAvailable')
+              })(),
+            }]
+          : []),
+      ]
+    : []
+
   const desktopActions = (
     <>
       <div className="view-toggle">
@@ -527,13 +609,15 @@ export function MonthWorkspace() {
           onClick={() => { setView('people'); clearPersonHighlight() }}
         >{t('month.people')}</button>
       </div>
-      <button
-        className={`btn btn-ghost ${holidayMode ? 'holiday-mode-active' : ''}`}
-        onClick={() => { setHolidayMode(m => !m); clearPersonHighlight() }}
-        title={t('month.toggleHoliday')}
-      >
-        <IconHoliday size={16} /> {holidayMode ? t('month.holidayModeOn') : t('month.holidays')}
-      </button>
+      {!holidayMode && (
+        <button
+          className="btn btn-ghost"
+          onClick={() => { setHolidayMode(true); clearPersonHighlight() }}
+          title={t('month.toggleHoliday')}
+        >
+          <IconHoliday size={16} /> {t('month.holidays')}
+        </button>
+      )}
       <button
         className="btn btn-ghost"
         onClick={openClearMonth}
@@ -557,68 +641,82 @@ export function MonthWorkspace() {
       >
         <IconPublish size={16} /> {t('month.publish')}
       </button>
-      <button
-        className="btn btn-ghost"
-        onClick={() => navigate(`/actuals/${month}`)}
-      >{t('month.actuals')}</button>
-      <button
-        className="btn btn-ghost"
-        onClick={() => openSide('fairness')}
-      >{t('month.fairness')}</button>
     </>
   )
 
-  const mobileMenu = (
-    <>
-      <div className="more-menu-section">
-        <div className="more-menu-label">{t('month.views')}</div>
-        <button
-          className={`btn btn-ghost ${view === 'calendar' ? 'active' : ''}`}
-          onClick={() => { setView('calendar'); setMenuOpen(false); clearPersonHighlight() }}
-        >{t('month.grid')}</button>
-        <button
-          className={`btn btn-ghost ${view === 'people' ? 'active' : ''}`}
-          onClick={() => { setView('people'); setMenuOpen(false); clearPersonHighlight() }}
-        >{t('month.people')}</button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => { openSide('fairness'); setMenuOpen(false) }}
-        >{t('month.fairness')}</button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => { navigate(`/actuals/${month}`); setMenuOpen(false) }}
-        >{t('month.actuals')}</button>
-      </div>
-      <div className="more-menu-section">
-        <div className="more-menu-label">{t('month.actions')}</div>
-        <button
-          className="btn btn-secondary"
-          onClick={() => { handleGenerate(); setMenuOpen(false) }}
-        >
-          <IconWand size={16} /> {t('month.newPlan')}
-        </button>
-        <button
-          className="btn btn-primary"
-          onClick={() => { handlePublish(); setMenuOpen(false) }}
-          disabled={!draftRevision || !validation?.publishable}
-        >
-          <IconPublish size={16} /> {t('month.publish')}
-        </button>
-        <button
-          className={`btn btn-ghost ${holidayMode ? 'holiday-mode-active' : ''}`}
-          onClick={() => { setHolidayMode(m => !m); setMenuOpen(false); clearPersonHighlight() }}
-        >
-          <IconHoliday size={16} /> {holidayMode ? t('month.holidayModeOn') : t('month.holidays')}
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={openClearMonth}
-          disabled={!canClearMonth}
-        >
-          <IconTrash size={16} /> {t('month.clearMonth')}
-        </button>
-      </div>
-    </>
+  function closeDrawer() {
+    setDrawerOpen(false)
+  }
+
+  const mobileDrawer = (
+    <div className="actions-drawer-root" role="presentation">
+      <div className="actions-drawer-backdrop" onClick={closeDrawer} />
+      <aside
+        className="actions-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('month.actions')}
+      >
+        <div className="actions-drawer-head">
+          <h3>{t('month.actions')}</h3>
+          <button className="btn btn-ghost icon-btn" aria-label={t('month.closePanel')} onClick={closeDrawer}>
+            <IconClose size={18} />
+          </button>
+        </div>
+        <div className="actions-drawer-section">
+          <div className="actions-drawer-label">{t('month.views')}</div>
+          <button
+            className={`btn btn-ghost ${view === 'calendar' ? 'active' : ''}`}
+            onClick={() => { setView('calendar'); clearPersonHighlight(); closeDrawer() }}
+          >
+            <IconCalendar size={16} /> {t('month.grid')}
+          </button>
+          <button
+            className={`btn btn-ghost ${view === 'people' ? 'active' : ''}`}
+            onClick={() => { setView('people'); clearPersonHighlight(); closeDrawer() }}
+          >
+            <IconPeople size={16} /> {t('month.people')}
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => { openSide('fairness'); closeDrawer() }}
+          >{t('month.fairness')}</button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => { navigate(`/actuals/${month}`); closeDrawer() }}
+          >{t('month.actuals')}</button>
+        </div>
+        <div className="actions-drawer-section">
+          <div className="actions-drawer-label">{t('month.actions')}</div>
+          <button
+            className="btn btn-secondary"
+            onClick={() => { handleGenerate(); closeDrawer() }}
+          >
+            <IconWand size={16} /> {t('month.newPlan')}
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => { handlePublish(); closeDrawer() }}
+            disabled={!draftRevision || !validation?.publishable}
+          >
+            <IconPublish size={16} /> {t('month.publish')}
+          </button>
+          <button
+            className={`btn btn-ghost ${holidayMode ? 'holiday-mode-active' : ''}`}
+            onClick={() => { setHolidayMode(m => !m); clearPersonHighlight(); closeDrawer() }}
+          >
+            <IconHoliday size={16} /> {holidayMode ? t('month.holidayModeOn') : t('month.holidays')}
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={openClearMonth}
+            disabled={!canClearMonth}
+          >
+            <IconTrash size={16} /> {t('month.clearMonth')}
+          </button>
+        </div>
+      </aside>
+    </div>
   )
 
   return (
@@ -660,22 +758,26 @@ export function MonthWorkspace() {
           )}
         </div>
         <div className="topbar-actions">
+          {holidayMode && (
+            <button
+              type="button"
+              className="btn holiday-mode-off"
+              onClick={() => { setHolidayMode(false); clearPersonHighlight() }}
+              title={t('month.holidayModeOff')}
+            >
+              <IconHoliday size={16} /> {t('month.holidayModeOff')}
+            </button>
+          )}
           <div className="actions-desktop">{desktopActions}</div>
           <div className="actions-mobile">
             <button
-              className={`btn btn-ghost icon-btn ${menuOpen ? 'is-open' : ''}`}
-              onClick={() => setMenuOpen(m => !m)}
-              aria-label={t('month.more')}
-              aria-expanded={menuOpen}
+              className={`btn btn-ghost icon-btn ${drawerOpen ? 'is-open' : ''}`}
+              onClick={() => setDrawerOpen(open => !open)}
+              aria-label={t('month.actions')}
+              aria-expanded={drawerOpen}
             >
-              <IconMore />
+              <IconMenu />
             </button>
-            {menuOpen && (
-              <>
-                <div className="sheet-backdrop open" onClick={() => setMenuOpen(false)} style={{ zIndex: 25 }} />
-                <div className="more-menu">{mobileMenu}</div>
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -714,10 +816,8 @@ export function MonthWorkspace() {
                     const actualForDate = actuals.find(a => a.date === date && a.status !== 'cancelled')
                     const personRelated = highlightedDates?.has(date) ?? false
                     const personDimmed = !!highlightedDates && !personRelated
-                    const cellMarks = [
-                      ...dayPrefs.map(({ person: p, pref }) => ({ kind: 'pref' as const, id: p.id, person: p, pref })),
-                      ...blocked.map(p => ({ kind: 'vac' as const, id: p.id, person: p })),
-                    ]
+                    const noMarks = dayPrefs.filter(p => p.pref === 'AVOID')
+                    const isManual = !!(assignment && (assignment.locked || assignment.source === 'manual'))
 
                     return (
                       <div
@@ -751,53 +851,44 @@ export function MonthWorkspace() {
                                   : t('month.tagNormal')}
                             </span>
                           )}
-                          {(assignment?.locked || assignment?.source === 'manual') && <span className="cell-lock" title={t('month.locked')}><IconLock /></span>}
                           {person && personId && (isOnVacation(person, date) || hasRestObligationOn(personId, date, activeDraftLeaves)) && (
                             <span className="cell-warn" title={isOnVacation(person, date) ? t('month.assignedVacation') : t('month.assignedRest')}><IconWarn /></span>
                           )}
                         </div>
-                        <div className="cell-person" title={person?.name} aria-label={person?.name}>
+                        <div className={`cell-person ${isManual ? 'manual' : ''}`} title={person?.name} aria-label={person?.name}>
                           {person ? (
                             <>
                               <span className="cell-person-name" aria-hidden="true">{person.name}</span>
                               <span className="cell-person-initials" aria-hidden="true">
                                 {initialsById.get(person.id) ?? person.name}
                               </span>
+                              {isManual && (
+                                <span className="cell-lock" title={t('month.locked')}><IconLock size={12} /></span>
+                              )}
                             </>
                           ) : (
                             !holidayMode && <span className="cell-unassigned">—</span>
                           )}
                         </div>
                         <div className="cell-marks">
-                          {cellMarks.slice(0, 1).map(mark => (
-                            <span
-                              key={`${mark.kind}-${mark.id}`}
-                              className={`cell-pref-icon ${mark.kind === 'vac' ? 'cell-vacation-icon' : `cell-pref-${mark.pref.toLowerCase()}`}`}
-                              title={
-                                mark.kind === 'vac'
-                                  ? `${mark.person.name} ${t('month.onVacation')}`
-                                  : `${prefLabel(mark.pref, t)}: ${mark.person.name}`
-                              }
-                            >
-                              {mark.kind === 'vac'
-                                ? <IconVacation size={12} />
-                                : mark.pref === 'AVOID'
-                                  ? <IconPrefNo size={12} />
-                                  : <IconPrefYes size={12} />}
-                            </span>
-                          ))}
-                          {cellMarks.length > 1 && (
-                            <span
-                              className="cell-pref-icon cell-pref-more"
-                              title={cellMarks.map(mark =>
-                                mark.kind === 'vac'
-                                  ? `${mark.person.name} ${t('month.onVacation')}`
-                                  : `${prefLabel(mark.pref, t)}: ${mark.person.name}`
-                              ).join('\n')}
-                            >
-                              +{cellMarks.length - 1}
-                            </span>
-                          )}
+                          <CellMarkLine
+                            items={noMarks.map(({ person: p, pref }) => ({
+                              id: p.id,
+                              title: `${prefLabel(pref, t)}: ${p.name}`,
+                              initials: initialsById.get(p.id) ?? p.name,
+                            }))}
+                            className="cell-pref-avoid"
+                            icon={<IconPrefNo size={12} />}
+                          />
+                          <CellMarkLine
+                            items={blocked.map(p => ({
+                              id: p.id,
+                              title: `${p.name} ${t('month.onVacation')}`,
+                              initials: initialsById.get(p.id) ?? p.name,
+                            }))}
+                            className="cell-vacation-icon"
+                            icon={<IconVacation size={12} />}
+                          />
                         </div>
                         {actualForDate && actualForDate.actualPersonId !== (assignment?.allocatedTo ?? assignment?.personId) && (
                           <div className="cell-substituted" title={t('month.substituted')}>↔</div>
@@ -817,6 +908,7 @@ export function MonthWorkspace() {
               leaves={activeDraftLeaves}
               roster={roster}
               overrides={calendarOverrides}
+              fairnessByPerson={fairnessByPerson365}
               onSelectDate={(date) => { clearPersonHighlight(); openSide('day', date) }}
               t={t}
             />
@@ -876,11 +968,12 @@ export function MonthWorkspace() {
               leaves={activeDraftLeaves}
               draftAssignments={activeRevision?.assignments ?? []}
               fairness={fairness}
+              conflictNotes={selectedDayConflictNotes}
               onAssign={handleAssign}
               onUnassign={handleUnassign}
               onProhibit={handleProhibit}
               onAvoid={handleAvoid}
-              onWant={handleWant}
+              onSetOfficialHoliday={handleSetOfficialHoliday}
             />
           )}
           {sidePanel === 'people' && (
@@ -892,6 +985,7 @@ export function MonthWorkspace() {
               selectedPersonId={highlightedPersonId}
               onSelectDate={(date) => { clearPersonHighlight(); openSide('day', date) }}
               onSelectPerson={handleSelectPerson}
+              fairnessByPerson={fairnessByPerson365}
             />
           )}
           {sidePanel === 'issues' && (
@@ -919,6 +1013,8 @@ export function MonthWorkspace() {
           )}
         </aside>
       </div>
+
+      {drawerOpen && createPortal(mobileDrawer, document.body)}
 
       {/* Review sheet overlay */}
       {showReview && draftRevision && (
@@ -999,6 +1095,35 @@ export function MonthWorkspace() {
   )
 }
 
+function CellMarkLine({
+  items,
+  className,
+  icon,
+}: {
+  items: { id: string; title: string; initials: string }[]
+  className: string
+  icon: ReactNode
+}) {
+  const empty = items.length === 0
+  const extra = Math.max(0, items.length - 1)
+  const titles = items.map(item => item.title).join('\n')
+  const initials = items.map(item => item.initials).join(' ')
+  return (
+    <div className={`cell-mark-row ${empty ? 'is-empty' : ''}`}>
+      <span
+        className={`cell-pref-icon ${className}${empty ? ' is-empty' : ''}`}
+        title={empty ? undefined : titles}
+      >
+        {icon}
+      </span>
+      <span className="cell-mark-people" title={empty ? undefined : titles}>
+        <span className="cell-mark-initials">{initials}</span>
+        {extra > 0 && <span className="cell-mark-more">+{extra}</span>}
+      </span>
+    </div>
+  )
+}
+
 function prefShort(pref: PreferenceType, t: (key: MessageKey) => string): string {
   switch (pref) {
     case 'HAVE': return t('pref.have')
@@ -1043,7 +1168,7 @@ function StatusPill({ status, t }: { status: string; t: (key: MessageKey) => str
 }
 
 function PeopleMatrix({
-  dates, people, assignmentMap, leaves, roster, overrides, onSelectDate, t,
+  dates, people, assignmentMap, leaves, roster, overrides, fairnessByPerson, onSelectDate, t,
 }: {
   month: string
   dates: string[]
@@ -1052,6 +1177,7 @@ function PeopleMatrix({
   leaves: any[]
   roster: any
   overrides: CalendarDateOverride[]
+  fairnessByPerson: Map<string, FairnessProjection>
   onSelectDate: (date: string) => void
   t: (key: MessageKey, params?: Record<string, string | number>) => string
 }) {
@@ -1076,6 +1202,9 @@ function PeopleMatrix({
             <div className="matrix-name-col">
               <span>{person.name}</span>
               <span className="matrix-count text-xs text-ink-3">{t('month.shifts', { count: shifts })}</span>
+              {fairnessByPerson.get(person.id) && (
+                <FairnessSummary projection={fairnessByPerson.get(person.id)!} compact />
+              )}
             </div>
             {dates.map(d => {
               const asgn = assignmentMap.get(d)
@@ -1086,9 +1215,7 @@ function PeopleMatrix({
                 (l.immediateRestDate === d || l.compensatoryLeaveDate === d)
               )
               const pref = person.datePreferences?.[d] ??
-                (person.monthlyConditions[d.slice(0,7)]?.preferredDates?.includes(d) ? 'WANT' :
-                 person.monthlyConditions[d.slice(0,7)]?.avoidedDates?.includes(d) ? 'AVOID' : null)
-              const preferred = pref === 'WANT' || pref === 'PREFER' || pref === 'HAVE'
+                (person.monthlyConditions[d.slice(0,7)]?.avoidedDates?.includes(d) ? 'AVOID' : null)
               const avoided = pref === 'AVOID'
               const isMember = isMemberOn(person, d)
               return (
@@ -1099,7 +1226,6 @@ function PeopleMatrix({
                     assigned ? 'assigned' : '',
                     unavailable ? 'unavailable' : '',
                     onRest ? 'rest' : '',
-                    preferred ? 'preferred' : '',
                     avoided ? 'avoided' : '',
                     !isMember ? 'not-member' : '',
                   ].filter(Boolean).join(' ')}
@@ -1107,14 +1233,13 @@ function PeopleMatrix({
                   title={
                     unavailable ? t('month.matrixVacation')
                     : onRest ? t('month.matrixRest')
-                    : preferred ? t('month.matrixPreferred')
                     : avoided ? t('month.matrixNo')
                     : !isMember ? t('month.matrixNotMember')
                     : assigned ? t('month.matrixAssigned')
                     : ''
                   }
                 >
-                  {assigned ? '●' : unavailable ? '✗' : onRest ? '░' : preferred ? '♥' : avoided ? '✕' : !isMember ? '—' : ''}
+                  {assigned ? '●' : unavailable ? '✗' : onRest ? '░' : avoided ? '✕' : !isMember ? '—' : ''}
                 </div>
               )
             })}

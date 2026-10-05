@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './ui/layout/AppLayout'
-import { SetupPage } from './ui/setup/SetupPage'
+import { SettingsPage } from './ui/settings/SettingsPage'
 import { MonthWorkspace } from './ui/month/MonthWorkspace'
 import { PeoplePage } from './ui/people/PeoplePage'
 import { PersonPage } from './ui/people/PersonPage'
-import { PoliciesPage } from './ui/policies/PoliciesPage'
 import { ActualsPage } from './ui/actuals/ActualsPage'
 import { WelcomeDialog } from './ui/welcome/WelcomeDialog'
 import { useStore } from './store/useStore'
@@ -47,8 +46,9 @@ export default function App() {
         {welcome}
         <BrowserRouter basename={basename}>
           <Routes>
-            <Route path="/setup" element={<SetupPage />} />
-            <Route path="*" element={<Navigate to="/setup" replace />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/setup" element={<Navigate to="/settings" replace />} />
+            <Route path="*" element={<Navigate to="/settings" replace />} />
           </Routes>
         </BrowserRouter>
       </>
@@ -66,9 +66,10 @@ export default function App() {
             <Route path="month/:yyyymm" element={<MonthWorkspace />} />
             <Route path="people" element={<PeoplePage />} />
             <Route path="people/:id" element={<PersonPage />} />
-            <Route path="policies" element={<PoliciesPage />} />
+            <Route path="policies" element={<Navigate to="/settings" replace />} />
             <Route path="actuals/:yyyymm" element={<ActualsPage />} />
-            <Route path="setup" element={<SetupPage />} />
+            <Route path="setup" element={<Navigate to="/settings" replace />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

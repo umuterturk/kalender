@@ -39,6 +39,23 @@
 .fairness-window-tabs .side-tab {
   flex: 0 1 auto;
   padding: 6px 10px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-3);
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.fairness-window-tabs .side-tab.active {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+.fairness-window-tabs .side-tab:hover:not(.active) {
+  color: var(--ink);
+  background: rgba(15, 28, 36, 0.04);
 }
 
 .fairness-legend {

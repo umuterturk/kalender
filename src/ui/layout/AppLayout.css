@@ -181,8 +181,10 @@
   }
 
   .bottom-nav {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
+    gap: 4px;
     position: fixed;
     left: 0;
     right: 0;
@@ -198,6 +200,8 @@
   }
 
   .bottom-nav .nav-item {
+    flex: 0 0 28%;
+    max-width: 120px;
     border-radius: 14px;
     padding: 8px 4px;
   }

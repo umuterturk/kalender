@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import type { FairnessReport } from '../../domain/fairness'
-import type { Person, BucketFairness } from '../../domain/types'
-import { useI18n, type MessageKey } from '../../i18n'
+import type { Person } from '../../domain/types'
+import { useI18n } from '../../i18n'
+import { FAIRNESS_WINDOWS, overallBalance, formatBalance, balanceTone, type FairnessWindowKey } from './fairnessDisplay'
+import { FairnessTable } from './FairnessTable'
 import './FairnessPanel.css'
 
 interface Props {
@@ -11,27 +13,9 @@ interface Props {
   onSelectPerson: (personId: string) => void
 }
 
-type WindowKey = '30d' | '90d' | '365d' | 'lifetime'
-type DomainBucket = 'NN' | 'NH' | 'HN' | 'HH'
-
-const WINDOW_KEYS: { key: WindowKey; label: MessageKey }[] = [
-  { key: '365d', label: 'fairness.w365' },
-  { key: '90d', label: 'fairness.w90' },
-  { key: '30d', label: 'fairness.w30' },
-  { key: 'lifetime', label: 'fairness.lifetime' },
-]
-
-/** Domain keys stay NH/HN/HH; labels show N/T. */
-const BUCKETS: { key: DomainBucket; label: string }[] = [
-  { key: 'NN', label: 'NN' },
-  { key: 'NH', label: 'NT' },
-  { key: 'HN', label: 'TN' },
-  { key: 'HH', label: 'TT' },
-]
-
 export function FairnessPanel({ fairness, people, selectedPersonId = null, onSelectPerson }: Props) {
   const { t } = useI18n()
-  const [window, setWindow] = useState<WindowKey>('365d')
+  const [window, setWindow] = useState<FairnessWindowKey>('365d')
 
   const projections = [...fairness.projections[window]].sort((a, b) => {
     const nameA = people.find(p => p.id === a.personId)?.name ?? a.personId
@@ -52,7 +36,7 @@ export function FairnessPanel({ fairness, people, selectedPersonId = null, onSel
           </div>
         )}
         <div className="fairness-window-tabs">
-          {WINDOW_KEYS.map(w => (
+          {FAIRNESS_WINDOWS.map(w => (
             <button
               key={w.key}
               className={`side-tab ${window === w.key ? 'active' : ''}`}
@@ -70,7 +54,7 @@ export function FairnessPanel({ fairness, people, selectedPersonId = null, onSel
       {projections.map(pf => {
         const person = people.find(p => p.id === pf.personId)
         if (!person) return null
-        const overallBalance = pf.NN.balance + pf.NH.balance + pf.HN.balance + pf.HH.balance
+        const overall = overallBalance(pf)
         return (
           <div
             key={pf.personId}
@@ -90,25 +74,11 @@ export function FairnessPanel({ fairness, people, selectedPersonId = null, onSel
               {person.capacity !== undefined && person.capacity !== 1 && (
                 <span className="text-xs text-ink-3">{t('fairness.capacity', { value: person.capacity })}</span>
               )}
-              <span className={`dev-badge ${overallBalance < -0.1 ? 'under' : overallBalance > 0.1 ? 'over' : 'balanced'}`}>
-                {overallBalance > 0 ? '+' : ''}{overallBalance.toFixed(2)} {t('fairness.overall')}
+              <span className={`dev-badge ${balanceTone(overall)}`}>
+                {formatBalance(overall)} {t('fairness.overall')}
               </span>
             </div>
-            <table className="fairness-table">
-              <thead>
-                <tr>
-                  <th>{t('fairness.bucket')}</th>
-                  <th>{t('fairness.actual')}</th>
-                  <th>{t('fairness.expected')}</th>
-                  <th>{t('fairness.balance')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {BUCKETS.map(({ key, label }) => (
-                  <BucketRow key={key} label={label} data={pf[key]} />
-                ))}
-              </tbody>
-            </table>
+            <FairnessTable projection={pf} />
             {(pf.holidayBlocksTouched > 0 || pf.holidayShifts > 0) && (
               <div className="pf-blocks text-xs text-ink-3">
                 {t('fairness.holidayBlocks', { blocks: pf.holidayBlocksTouched, shifts: pf.holidayShifts })}
@@ -118,19 +88,5 @@ export function FairnessPanel({ fairness, people, selectedPersonId = null, onSel
         )
       })}
     </div>
-  )
-}
-
-function BucketRow({ label, data }: { label: string; data: BucketFairness }) {
-  const bal = data.balance
-  return (
-    <tr>
-      <td className="measure-label">{label}</td>
-      <td className="mono">{data.actual.toFixed(2)}</td>
-      <td className="mono">{data.expected.toFixed(2)}</td>
-      <td className={`mono remainder ${bal < -0.01 ? 'under' : bal > 0.01 ? 'over' : ''}`}>
-        {bal > 0 ? '+' : ''}{bal.toFixed(2)}
-      </td>
-    </tr>
   )
 }

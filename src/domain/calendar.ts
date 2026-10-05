@@ -109,6 +109,33 @@ export function holidaySource(
   return null
 }
 
+export type DesiredHolidayAction =
+  | { kind: 'set'; override: CalendarDateOverride }
+  | { kind: 'remove' }
+  | { kind: 'noop' }
+
+/** Store change that makes a date a holiday or a normal day. */
+export function desiredHolidayAction(
+  date: IsoDate,
+  roster: Roster,
+  overrides: CalendarDateOverride[],
+  wantHoliday: boolean
+): DesiredHolidayAction {
+  const existing = overrides.find(o => o.date === date)
+  if (isHoliday(date, roster, overrides) === wantHoliday) return { kind: 'noop' }
+
+  const weekendByDefault = !!(roster.weekendHolidayDefault && isWeekend(date))
+
+  if (wantHoliday) {
+    if (weekendByDefault) return { kind: 'remove' }
+    return { kind: 'set', override: { date, holiday: true, label: existing?.label } }
+  }
+
+  if (weekendByDefault) return { kind: 'set', override: { date, holiday: false } }
+  if (existing) return { kind: 'remove' }
+  return { kind: 'set', override: { date, holiday: false } }
+}
+
 /** Find the effective rest policy for a date. */
 export function effectiveRestPolicy(
   date: IsoDate,

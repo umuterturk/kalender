@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { IconBeach, IconCheck, IconX } from '@tabler/icons-react'
+import { IconBeach, IconCheck, IconSettings as TablerSettings, IconX } from '@tabler/icons-react'
 
 type IconProps = {
   size?: number
@@ -54,13 +54,8 @@ export function IconSliders(props: IconProps) {
   )
 }
 
-export function IconSettings(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 3v2.2M12 18.8V21M4.9 6.5l1.6 1.6M17.5 15.9l1.6 1.6M3 12h2.2M18.8 12H21M4.9 17.5l1.6-1.6M17.5 8.1l1.6-1.6" />
-    </Svg>
-  )
+export function IconSettings({ size = 20, className }: IconProps) {
+  return <TablerSettings size={size} stroke={1.75} className={className} aria-hidden />
 }
 
 export function IconChevronLeft(props: IconProps) {
@@ -101,6 +96,14 @@ export function IconWarn(props: IconProps) {
     <Svg {...props} size={props.size ?? 14}>
       <path d="M12 4 21 19H3L12 4z" />
       <path d="M12 10v4M12 16.5v.5" />
+    </Svg>
+  )
+}
+
+export function IconMenu(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
     </Svg>
   )
 }

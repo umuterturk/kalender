@@ -2,9 +2,13 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import { isMemberOn } from '../../domain/eligibility'
-import { addDays } from '../../domain/calendar'
+import { addDays, localToday } from '../../domain/calendar'
 import type { MonthlyConditions } from '../../domain/types'
 import { useI18n } from '../../i18n'
+import { useFairness } from '../fairness/useFairness'
+import { FairnessTable } from '../fairness/FairnessTable'
+import { FAIRNESS_WINDOWS, type FairnessWindowKey } from '../fairness/fairnessDisplay'
+import { MonthYearPicker } from './MonthYearPicker'
 import './PersonPage.css'
 
 export function PersonPage() {
@@ -21,12 +25,16 @@ export function PersonPage() {
   const [leaving, setLeaving] = useState(false)
   const [leaveDate, setLeaveDate] = useState(today)
   const [name, setName] = useState(person?.name ?? '')
+  const [fairnessWindow, setFairnessWindow] = useState<FairnessWindowKey>('365d')
+  const fairness = useFairness(localToday().slice(0, 7))
 
   useEffect(() => {
     setName(person?.name ?? '')
   }, [person?.id, person?.name])
 
   if (!person) return <div className="person-page"><p>{t('people.notFound')}</p></div>
+
+  const fairnessProjection = fairness?.projections[fairnessWindow].find(p => p.personId === person.id)
 
   function saveName() {
     const trimmed = name.trim()
@@ -161,6 +169,37 @@ export function PersonPage() {
           )}
         </section>
 
+        {fairness && fairnessProjection && (
+            <section className="card person-section">
+              <h2 className="section-title">{t('people.fairness')}</h2>
+              {!fairness.historyComplete && (
+                <p className="help-text text-sm text-ink-3">{t('fairness.historyShort')}</p>
+              )}
+              <div className="fairness-window-tabs">
+                {FAIRNESS_WINDOWS.map(w => (
+                  <button
+                    key={w.key}
+                    type="button"
+                    className={`side-tab ${fairnessWindow === w.key ? 'active' : ''}`}
+                    onClick={() => setFairnessWindow(w.key)}
+                  >
+                    {t(w.label)}
+                  </button>
+                ))}
+              </div>
+              <p className="help-text text-sm text-ink-3">{t('fairness.legend')}</p>
+              <FairnessTable projection={fairnessProjection} />
+              {(fairnessProjection.holidayBlocksTouched > 0 || fairnessProjection.holidayShifts > 0) && (
+                <p className="help-text text-sm text-ink-3">
+                  {t('fairness.holidayBlocks', {
+                    blocks: fairnessProjection.holidayBlocksTouched,
+                    shifts: fairnessProjection.holidayShifts,
+                  })}
+                </p>
+              )}
+            </section>
+        )}
+
         <section className="card person-section">
           <h2 className="section-title">{t('people.fairnessCapacity')}</h2>
           <p className="help-text text-sm text-ink-3">
@@ -184,8 +223,9 @@ export function PersonPage() {
         <section className="card person-section">
           <h2 className="section-title">{t('people.monthlyConditions')}</h2>
           <div className="field">
-            <label>{t('common.month')}</label>
-            <input className="input" type="month" value={editMonth} onChange={e => setEditMonth(e.target.value)} />
+            <label htmlFor="edit-month">{t('common.month')}</label>
+            <p className="help-text">{t('people.monthHelp')}</p>
+            <MonthYearPicker id="edit-month" value={editMonth} onChange={setEditMonth} />
           </div>
 
           <div className="field">
@@ -203,8 +243,10 @@ export function PersonPage() {
 
           <div className="fields-row">
             <div className="field">
-              <label>{t('people.requiredMin')}</label>
+              <label htmlFor="required-min">{t('people.requiredMin')}</label>
+              <p className="help-text">{t('people.requiredMinHelp')}</p>
               <input
+                id="required-min"
                 className="input"
                 type="number" min="0"
                 value={cond.requiredMin}
@@ -212,8 +254,10 @@ export function PersonPage() {
               />
             </div>
             <div className="field">
-              <label>{t('people.maxShifts')}</label>
+              <label htmlFor="max-shifts">{t('people.maxShifts')}</label>
+              <p className="help-text">{t('people.maxShiftsHelp')}</p>
               <input
+                id="max-shifts"
                 className="input"
                 type="number" min="0"
                 value={cond.max ?? ''}

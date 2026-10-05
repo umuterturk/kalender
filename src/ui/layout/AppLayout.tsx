@@ -3,7 +3,7 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import { localToday } from '../../domain/calendar'
 import { useI18n, type Locale } from '../../i18n'
-import { IconCalendar, IconPeople, IconSliders, IconSettings } from '../icons'
+import { IconCalendar, IconPeople, IconSettings } from '../icons'
 import './AppLayout.css'
 
 export function AppLayout() {
@@ -27,8 +27,7 @@ export function AppLayout() {
         <nav className="rail-nav">
           <NavItem to={scheduleTo} label={t('nav.schedule')} icon={<IconCalendar />} matchPrefix="/month" />
           <NavItem to="/people" label={t('nav.people')} icon={<IconPeople />} matchPrefix="/people" />
-          <NavItem to="/policies" label={t('nav.policies')} icon={<IconSliders />} />
-          <NavItem to="/setup" label={t('nav.setup')} icon={<IconSettings />} />
+          <NavItem to="/settings" label={t('nav.settings')} icon={<IconSettings />} matchPrefix="/settings" />
         </nav>
 
         <div className="rail-footer">
@@ -59,8 +58,7 @@ export function AppLayout() {
       <nav className="bottom-nav" aria-label={t('nav.mobileNav')}>
         <NavItem to={scheduleTo} label={t('nav.schedule')} icon={<IconCalendar size={22} />} matchPrefix="/month" />
         <NavItem to="/people" label={t('nav.people')} icon={<IconPeople size={22} />} matchPrefix="/people" />
-        <NavItem to="/policies" label={t('nav.policies')} icon={<IconSliders size={22} />} />
-        <NavItem to="/setup" label={t('nav.setup')} icon={<IconSettings size={22} />} />
+        <NavItem to="/settings" label={t('nav.settings')} icon={<IconSettings size={22} />} matchPrefix="/settings" />
       </nav>
     </div>
   )

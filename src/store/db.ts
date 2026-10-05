@@ -10,7 +10,7 @@
 
 import { openDB, type IDBPDatabase } from 'idb'
 import type { KalenderState, Assignment, Person, PreferenceType } from '../domain/types'
-import { holidaysForCountry, mergeOfficialHolidays } from '../domain/holidays'
+import { mergeOfficialHolidays } from '../domain/holidays'
 
 const DB_NAME = 'kalender'
 const DB_VERSION = 1
@@ -56,16 +56,12 @@ export async function clearState(): Promise<void> {
 /** Migrate persisted state forward to the current domain model. */
 export function migrateState(state: KalenderState): KalenderState {
   const country = state.roster?.country ?? 'TR'
-  const official = holidaysForCountry(country)
-  const hasOfficial = official.some(h => state.calendarOverrides.some(o => o.date === h.date))
   return {
     ...state,
     roster: state.roster
       ? { ...state.roster, country }
       : null,
-    calendarOverrides: hasOfficial
-      ? state.calendarOverrides
-      : mergeOfficialHolidays(state.calendarOverrides, country),
+    calendarOverrides: mergeOfficialHolidays(state.calendarOverrides, country),
     revisions: state.revisions.map(rev => ({
       ...rev,
       assignments: rev.assignments.map(migrateAssignment),

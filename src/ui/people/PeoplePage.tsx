@@ -121,13 +121,6 @@ export function PeoplePage() {
                           {latestMembership?.inactiveFrom && (
                             <span>{t('people.left', { date: latestMembership.inactiveFrom })}</span>
                           )}
-                          {Object.keys(person.monthlyConditions).length > 0 && (
-                            <span>
-                              {t('people.monthsWithConditions', {
-                                count: Object.keys(person.monthlyConditions).length,
-                              })}
-                            </span>
-                          )}
                         </div>
                       </div>
                       <span className={`pill ${active ? 'pill-published' : 'pill-draft'}`}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type {
-  Person, Roster, Assignment, LeaveObligation, CalendarDateOverride, PreferenceType
+  Person, Roster, Assignment, LeaveObligation, CalendarDateOverride, PreferenceType, DayType
 } from '../../domain/types'
 import type { FairnessReport } from '../../domain/fairness'
 import { classifyDay, getBucketBalance, getOverallBalance } from '../../domain/fairness'
@@ -29,8 +30,9 @@ interface Props {
   onUnassign: (date: string) => void
   onProhibit: (date: string, personId: string, prohibited: boolean) => void
   onAvoid: (date: string, personId: string, avoided: boolean) => void
-  onWant: (date: string, personId: string, wanted: boolean) => void
   onSetPreference?: (date: string, personId: string, pref: PreferenceType | null) => void
+  onSetOfficialHoliday?: (date: string, holiday: boolean) => void
+  conflictNotes?: { key: string; text: string }[]
 }
 
 type PendingAction =
@@ -38,8 +40,25 @@ type PendingAction =
   | { kind: 'no'; personId: string }
   | { kind: 'clear' }
   | { kind: 'vacation'; personId: string; on: boolean }
-  | { kind: 'want'; personId: string; on: boolean }
   | { kind: 'preference'; personId: string; pref: PreferenceType | null }
+  | { kind: 'holiday'; want: boolean }
+
+function dayTypeKeys(dayType: DayType): {
+  code: MessageKey
+  title: MessageKey
+  help: MessageKey
+} {
+  switch (dayType) {
+    case 'NH':
+      return { code: 'day.typeNT', title: 'day.typeTitleNT', help: 'day.typeHelpNT' }
+    case 'HN':
+      return { code: 'day.typeTN', title: 'day.typeTitleTN', help: 'day.typeHelpTN' }
+    case 'HH':
+      return { code: 'day.typeTT', title: 'day.typeTitleTT', help: 'day.typeHelpTT' }
+    default:
+      return { code: 'day.typeNN', title: 'day.typeTitleNN', help: 'day.typeHelpNN' }
+  }
+}
 
 function ownerId(a: Assignment): string {
   return a.allocatedTo ?? a.personId ?? ''
@@ -110,13 +129,16 @@ function reasonsForPending(
 
 export function DaySheet({
   date, people, roster, overrides, assignment, leaves, draftAssignments, fairness,
-  onAssign, onUnassign, onProhibit, onAvoid, onWant, onSetPreference
+  onAssign, onUnassign, onProhibit, onAvoid, onSetPreference, onSetOfficialHoliday,
+  conflictNotes = [],
 }: Props) {
   const { t, localeTag } = useI18n()
   const [pending, setPending] = useState<PendingAction | null>(null)
   useEffect(() => { setPending(null) }, [date])
   const holiday = isHoliday(date, roster, overrides)
+  const holidayLabel = overrides.find(o => o.date === date)?.label
   const dayType = classifyDay(date, roster, overrides)
+  const typeCopy = dayTypeKeys(dayType)
   const isPast = date < localToday()
 
   const assignedPersonId = assignment ? (assignment.allocatedTo ?? assignment.personId) : null
@@ -126,9 +148,6 @@ export function DaySheet({
   )
 
   const preferenceOpts: { pref: PreferenceType | null; label: string }[] = [
-    { pref: 'HAVE', label: t('pref.have') },
-    { pref: 'WANT', label: t('pref.want') },
-    { pref: 'PREFER', label: t('pref.prefer') },
     { pref: null, label: t('pref.neutral') },
     { pref: 'AVOID', label: t('pref.no') },
   ]
@@ -173,18 +192,19 @@ export function DaySheet({
       case 'vacation':
         onProhibit(date, pending.personId, pending.on)
         break
-      case 'want':
-        onWant(date, pending.personId, pending.on)
-        break
       case 'preference':
         onSetPreference?.(date, pending.personId, pending.pref)
+        break
+      case 'holiday':
+        onSetOfficialHoliday?.(date, pending.want)
         break
     }
     setPending(null)
   }
 
   const confirmTitle: MessageKey =
-    pending?.kind === 'set' ? 'day.confirmSetTitle'
+    pending?.kind === 'set' && isPast ? 'day.confirmPastSetTitle'
+    : pending?.kind === 'set' ? 'day.confirmSetTitle'
     : pending?.kind === 'no' ? 'day.confirmNoTitle'
     : pending?.kind === 'clear' ? 'day.confirmClearTitle'
     : 'day.confirmEditTitle'
@@ -199,11 +219,43 @@ export function DaySheet({
     <div className="day-sheet">
       <div className="day-sheet-header">
         <div className="day-date">{formatDateLong(date, localeTag)}</div>
+        {conflictNotes.length > 0 && (
+          <div className="day-conflict-notes" role="status">
+            {conflictNotes.map(note => (
+              <div key={note.key} className="day-conflict-note">
+                <IconWarn size={16} />
+                <span>{note.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="day-meta">
           <span className={`badge-${holiday ? 'holiday' : 'normal'}`}>
-            {formatDayType(dayType)} ({holiday ? t('day.holiday') : t('day.normal')})
+            {t(typeCopy.code)}
           </span>
+          {holidayLabel && (
+            <span className="day-holiday-name">{holidayLabel}</span>
+          )}
         </div>
+        <p className="day-type-title">{t(typeCopy.title)}</p>
+        <p className="day-type-help">{t(typeCopy.help)}</p>
+        {onSetOfficialHoliday && (
+          <label className="day-holiday-mark" title={t('day.officialHolidayHint')}>
+            <input
+              type="checkbox"
+              checked={holiday}
+              onChange={e => {
+                const want = e.target.checked
+                requestOrRun(
+                  { kind: 'holiday', want },
+                  () => onSetOfficialHoliday(date, want),
+                  isPast,
+                )
+              }}
+            />
+            <span>{t('day.officialHoliday')}</span>
+          </label>
+        )}
       </div>
 
       {isPast && (
@@ -357,19 +409,6 @@ export function DaySheet({
                     >
                       {t('pref.no')}
                     </button>
-                    <button
-                      className={`btn text-sm ${pref === 'WANT' || pref === 'PREFER' ? 'btn-secondary' : 'btn-ghost'}`}
-                      onClick={() => {
-                        const on = !(pref === 'WANT' || pref === 'PREFER')
-                        requestOrRun(
-                          { kind: 'want', personId: person.id, on },
-                          () => onWant(date, person.id, on),
-                          isPast,
-                        )
-                      }}
-                    >
-                      {pref === 'WANT' || pref === 'PREFER' ? t('pref.wanted') : t('pref.want')}
-                    </button>
                   </>
                 )}
                 <button
@@ -409,7 +448,7 @@ export function DaySheet({
         </div>
       )}
 
-      {pending && (
+      {pending && createPortal(
         <div
           className="confirm-overlay"
           role="presentation"
@@ -448,7 +487,8 @@ export function DaySheet({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

@@ -1,7 +1,8 @@
-import type { Person, Assignment } from '../../domain/types'
+import type { Person, Assignment, FairnessProjection } from '../../domain/types'
 import { addDays } from '../../domain/calendar'
 import { isOnVacation, getPreference } from '../../domain/eligibility'
 import { useI18n } from '../../i18n'
+import { FairnessSummary } from '../fairness/FairnessSummary'
 import './PeoplePanel.css'
 
 interface Props {
@@ -12,10 +13,12 @@ interface Props {
   selectedPersonId?: string | null
   onSelectDate: (date: string) => void
   onSelectPerson?: (personId: string) => void
+  fairnessByPerson?: Map<string, FairnessProjection>
 }
 
 export function PeoplePanel({
   people, dates, assignments, selectedDate, selectedPersonId = null, onSelectDate, onSelectPerson,
+  fairnessByPerson,
 }: Props) {
   const { t } = useI18n()
 
@@ -30,10 +33,6 @@ export function PeoplePanel({
         ))
         const vacation = dates.filter(d => isOnVacation(person, d))
         const avoiding = dates.filter(d => getPreference(person, d) === 'AVOID')
-        const wanted = dates.filter(d => {
-          const p = getPreference(person, d)
-          return p === 'HAVE' || p === 'WANT' || p === 'PREFER'
-        })
         const selected = selectedPersonId === person.id
         return (
           <section key={person.id} className={`people-panel-card ${selected ? 'selected' : ''}`}>
@@ -45,10 +44,12 @@ export function PeoplePanel({
             >
               {person.name}
             </button>
+            {fairnessByPerson?.get(person.id) && (
+              <FairnessSummary projection={fairnessByPerson.get(person.id)!} compact />
+            )}
             <DayGroup label={t('peoplePanel.days')} dates={worked} tone="assigned" selectedDate={selectedDate} onSelectDate={onSelectDate} noneLabel={t('peoplePanel.none')} />
             <DayGroup label={t('peoplePanel.no')} dates={avoiding} tone="avoid" selectedDate={selectedDate} onSelectDate={onSelectDate} noneLabel={t('peoplePanel.none')} />
             <DayGroup label={t('peoplePanel.vacation')} dates={vacation} tone="vacation" selectedDate={selectedDate} onSelectDate={onSelectDate} noneLabel={t('peoplePanel.none')} />
-            <DayGroup label={t('peoplePanel.preferred')} dates={wanted} tone="wanted" selectedDate={selectedDate} onSelectDate={onSelectDate} noneLabel={t('peoplePanel.none')} />
           </section>
         )
       })}

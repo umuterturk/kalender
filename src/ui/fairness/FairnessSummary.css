@@ -1,0 +1,33 @@
+.fairness-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fairness-summary.compact {
+  gap: 4px;
+}
+
+.fairness-summary .dev-badge {
+  margin-left: 0;
+}
+
+.fairness-summary-buckets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.fairness-summary-bucket {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: var(--text-xs);
+}
+
+.fairness-summary-label {
+  color: var(--ink-3);
+  font-weight: var(--weight-semibold);
+}
