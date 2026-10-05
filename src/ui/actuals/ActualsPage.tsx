@@ -4,13 +4,14 @@ import { monthDates, formatDateLong } from '../../domain/calendar'
 import type { ActualShift } from '../../domain/types'
 import { nanoid } from '../../lib/nanoid'
 import { useI18n, type MessageKey } from '../../i18n'
+import { trackEvent } from '../../analytics'
 import './ActualsPage.css'
 
 export function ActualsPage() {
   const { yyyymm } = useParams<{ yyyymm: string }>()
   const month = yyyymm ?? new Date().toISOString().slice(0, 7)
   const { people, revisions, actuals, roster, dispatch } = useStore()
-  const { t, localeTag } = useI18n()
+  const { t, locale, localeTag } = useI18n()
 
   const publishedRevision = revisions.find(r => r.month === month && r.status === 'published')
   const today = new Date().toISOString().slice(0, 10)
@@ -41,6 +42,7 @@ export function ActualsPage() {
       confirmedAt: new Date().toISOString(),
     }
     dispatch({ type: 'SAVE_ACTUAL', payload: a })
+    trackEvent('actual_confirmed', { month, locale })
   }
 
   function handleSubstitute(date: string, substituteId: string) {

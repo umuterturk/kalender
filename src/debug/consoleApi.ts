@@ -11,6 +11,7 @@
 
 import type { KalenderState } from '../domain/types'
 import { clearState, loadState, migrateState, saveState } from '../store/db'
+import { downloadState, parseImportedState, serializeState } from '../store/transfer'
 
 export interface KalenderConsoleApi {
   dump: () => Promise<KalenderState | null>
@@ -42,10 +43,6 @@ async function resolveState(): Promise<KalenderState | null> {
   return saved ? migrateState(saved) : null
 }
 
-function toPrettyJson(state: KalenderState): string {
-  return JSON.stringify(state, null, 2)
-}
-
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
@@ -53,22 +50,6 @@ async function copyText(text: string): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-function downloadJson(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function stamp(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
 }
 
 function buildSummary(state: KalenderState): Record<string, unknown> {
@@ -124,7 +105,7 @@ export function installKalenderConsole(): KalenderConsoleApi {
         console.warn('[kalender] no state found (live or IndexedDB)')
         return null
       }
-      const json = toPrettyJson(state)
+      const json = serializeState(state)
       const copied = await copyText(json)
       console.info(
         `[kalender] dump ready (${json.length} chars)${copied ? ', copied to clipboard' : ' — copy failed; use return value or kalender.download()'}`
@@ -139,11 +120,10 @@ export function installKalenderConsole(): KalenderConsoleApi {
         console.warn('[kalender] no state found (live or IndexedDB)')
         return null
       }
-      const json = toPrettyJson(state)
-      const name = `kalender-dump-${stamp()}.json`
-      downloadJson(name, json)
+      const json = serializeState(state)
+      downloadState(state)
       const copied = await copyText(json)
-      console.info(`[kalender] downloaded ${name}${copied ? ' (also copied to clipboard)' : ''}`)
+      console.info(`[kalender] downloaded backup${copied ? ' (also copied to clipboard)' : ''}`)
       return state
     },
 
@@ -160,8 +140,7 @@ export function installKalenderConsole(): KalenderConsoleApi {
     },
 
     async load(json) {
-      const parsed: KalenderState = typeof json === 'string' ? JSON.parse(json) : json
-      const migrated = migrateState(parsed)
+      const migrated = parseImportedState(json)
       await saveState(migrated)
       console.info('[kalender] state loaded into IndexedDB — reloading…')
       location.reload()

@@ -57,7 +57,8 @@ function reducer(state: KalenderState, action: Action): KalenderState {
     case 'SETUP_ROSTER': {
       const firstSetup = !state.roster
       const country = action.payload.country ?? 'TR'
-      const holidays = firstSetup
+      const countryChanged = state.roster?.country !== country
+      const holidays = firstSetup || countryChanged
         ? seedHolidayState(state.holidayPeriods, state.calendarOverrides, country)
         : null
       return {

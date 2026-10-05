@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import { nanoid } from '../../lib/nanoid'
-import type { Roster } from '../../domain/types'
+import type { CountryCode, Roster } from '../../domain/types'
 import { localToday } from '../../domain/calendar'
 import { useI18n } from '../../i18n'
+import { trackEvent } from '../../analytics'
 import { RestPoliciesSection } from '../policies/RestPoliciesSection'
 import { HolidaysSection } from './HolidaysSection'
+import { ImportExport } from './ImportExport'
+import { resetWelcomeSeen } from '../welcome/welcomeSeen'
 import '../setup/SetupPage.css'
 import '../policies/PoliciesPage.css'
 import './SettingsPage.css'
@@ -32,6 +36,7 @@ export function SettingsPage() {
   const defaultRosterName = t('setup.defaultRosterName')
   const [rosterName, setRosterName] = useState(roster?.name ?? defaultRosterName)
   const prevDefaultRosterName = useRef(defaultRosterName)
+  const [country, setCountry] = useState<CountryCode>(roster?.country ?? 'TR')
   const [weekendDefault, setWeekendDefault] = useState(roster?.weekendHolidayDefault ?? true)
   const [workingWeekdays, setWorkingWeekdays] = useState<number[]>(roster?.defaultWorkingWeekdays ?? DEFAULT_WORKING)
   const [historyStart, setHistoryStart] = useState(roster?.historyStartDate ?? localToday())
@@ -43,6 +48,7 @@ export function SettingsPage() {
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saved, setSaved] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     if (!roster && rosterName === prevDefaultRosterName.current) {
@@ -73,7 +79,7 @@ export function SettingsPage() {
     const next: Roster = {
       id: roster?.id ?? nanoid(),
       name: rosterName.trim(),
-      country: 'TR',
+      country,
       defaultWorkingWeekdays: workingWeekdays,
       historyStartDate: historyStart,
       weekendHolidayDefault: weekendDefault,
@@ -81,6 +87,7 @@ export function SettingsPage() {
     }
     dispatch({ type: 'SETUP_ROSTER', payload: next })
     if (firstTime) {
+      trackEvent('roster_created', { locale })
       navigate(`/month/${localToday().slice(0, 7)}`)
       return
     }
@@ -114,10 +121,18 @@ export function SettingsPage() {
           <div className="setup-form">
             <div className="field">
               <label htmlFor="settings-country">{t('setup.country')}</label>
-              <select id="settings-country" className="select" value="TR" onChange={() => { /* only Turkey */ }}>
+              <select
+                id="settings-country"
+                className="select"
+                value={country}
+                onChange={e => setCountry(e.target.value as CountryCode)}
+              >
                 <option value="TR">{t('setup.countryTR')}</option>
+                <option value="OTHER">{t('setup.countryOther')}</option>
               </select>
-              <span className="help-text">{t('setup.countryHelp')}</span>
+              <span className="help-text">
+                {country === 'TR' ? t('setup.countryHelp') : t('setup.countryOtherHelp')}
+              </span>
             </div>
             <div className="field">
               <label htmlFor="settings-roster-name">{t('setup.rosterName')}</label>
@@ -177,9 +192,11 @@ export function SettingsPage() {
               </button>
               {saved && <span className="help-text">{t('settings.saved')}</span>}
             </div>
+            {firstTime && <ImportExport variant="onboarding" />}
           </div>
         </section>
 
+        {!firstTime && <ImportExport variant="settings" />}
         {!firstTime && <HolidaysSection />}
 
         {!firstTime && (
@@ -187,6 +204,51 @@ export function SettingsPage() {
             <h2 className="section-title settings-rules-title">{t('policies.title')}</h2>
             <RestPoliciesSection />
           </div>
+        )}
+
+        {!firstTime && (
+          <section className="card settings-section settings-danger">
+            <h2 className="section-title">{t('settings.deleteAll')}</h2>
+            <p className="help-text">{t('settings.deleteAllHelp')}</p>
+            <div className="btn-row">
+              <button type="button" className="btn btn-danger" onClick={() => setConfirmDelete(true)}>
+                {t('settings.deleteAll')}
+              </button>
+            </div>
+          </section>
+        )}
+
+        {confirmDelete && createPortal(
+          <div className="transfer-overlay" role="presentation" onClick={() => setConfirmDelete(false)}>
+            <div
+              className="transfer-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="settings-delete-title"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 id="settings-delete-title">{t('settings.deleteAllTitle')}</h3>
+              <p>{t('settings.deleteAllBody')}</p>
+              <div className="btn-row transfer-dialog-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setConfirmDelete(false)}>
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => {
+                    resetWelcomeSeen()
+                    dispatch({ type: 'CLEAR_ALL' })
+                    setConfirmDelete(false)
+                    navigate('/settings')
+                  }}
+                >
+                  {t('settings.deleteAllConfirm')}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
         )}
       </div>
     </div>

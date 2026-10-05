@@ -94,11 +94,13 @@ export interface DateRange {
 
 // ─── Roster ────────────────────────────────────────────────────────────────
 
+export type CountryCode = 'TR' | 'OTHER'
+
 export interface Roster {
   id: string
   name: string
-  /** ISO country used for official holidays. Currently only TR. */
-  country?: 'TR'
+  /** Country used for official holidays. TR seeds Türkiye holidays; OTHER starts empty. */
+  country?: CountryCode
   timezone?: string
   /** Default weekdays that count as "working" (0=Sun, 1=Mon … 6=Sat). */
   defaultWorkingWeekdays: number[]

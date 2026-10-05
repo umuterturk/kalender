@@ -25,6 +25,7 @@ import {
   IconCalendar, IconChevronLeft, IconChevronRight, IconClose, IconLock, IconMenu, IconPeople, IconPrefNo, IconPublish, IconTrash, IconVacation, IconWand, IconWarn,
 } from '../icons'
 import { useI18n, type MessageKey } from '../../i18n'
+import { trackEvent } from '../../analytics'
 import './MonthWorkspace.css'
 
 const CONFLICT_NOTE_HINTS: Partial<Record<string, MessageKey>> = {
@@ -37,7 +38,7 @@ export function MonthWorkspace() {
   const { yyyymm } = useParams<{ yyyymm: string }>()
   const month = yyyymm ?? new Date().toISOString().slice(0, 7)
   const navigate = useNavigate()
-  const { t, tp, localeTag } = useI18n()
+  const { t, tp, locale, localeTag } = useI18n()
 
   const dayHeaders = [
     t('weekdaysShort.mon'),
@@ -283,6 +284,11 @@ export function MonthWorkspace() {
     }
     dispatch({ type: 'SAVE_REVISION', payload: rev })
     dispatch({ type: 'SAVE_LEAVES', payload: result.leaves })
+    trackEvent('plan', {
+      month,
+      locale,
+      workable: hasCoverage ? 'yes' : 'no',
+    })
   }
 
   function handlePublish() {
@@ -294,6 +300,7 @@ export function MonthWorkspace() {
   function confirmPublish() {
     if (!draftRevision) return
     dispatch({ type: 'PUBLISH_REVISION', payload: { revisionId: draftRevision.id, publishedAt: new Date().toISOString() } })
+    trackEvent('publish', { month, locale })
     setShowReview(false)
   }
 
@@ -471,6 +478,7 @@ export function MonthWorkspace() {
     }
     setClearMonthOpen(false)
     setResolvedNote(null)
+    trackEvent('clear_month', { month, locale })
   }
 
   function handleUnassign(date: string) {

@@ -74,7 +74,7 @@ The scheduling core lives in `src/domain/` — generate, repair, leave, fairness
 
 ## Privacy
 
-Kalender does not send roster data anywhere. Clearing site data for this origin clears the plan.
+The roster stays in this browser. People, duties, and plans are not uploaded. The live site sends page views to Google Analytics; person ids are omitted from those paths. Clearing site data for this origin clears the plan.
 
 ---
 

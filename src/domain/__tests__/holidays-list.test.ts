@@ -29,6 +29,12 @@ describe('public holiday periods', () => {
     expect(days.every(d => d.label === 'Cumhuriyet Bayramı')).toBe(true)
   })
 
+  it('adds no default holidays for Other', () => {
+    const { holidayPeriods, calendarOverrides } = seedHolidayState([], [], 'OTHER')
+    expect(holidayPeriods).toEqual([])
+    expect(calendarOverrides.filter(o => o.holiday)).toEqual([])
+  })
+
   it('lets an official range grow when extra days are granted', () => {
     const { holidayPeriods } = seedHolidayState([], [], 'TR')
     const republic = holidayPeriods.find(p => p.officialKind === 'republic' && p.start.startsWith('2026'))

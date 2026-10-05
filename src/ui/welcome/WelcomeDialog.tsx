@@ -1,4 +1,5 @@
 import { useI18n } from '../../i18n'
+import { ImportExport } from '../settings/ImportExport'
 import './WelcomeDialog.css'
 
 type Props = {
@@ -52,9 +53,12 @@ export function WelcomeDialog({ onDismiss }: Props) {
             <span>{t('welcome.flexBody')}</span>
           </li>
         </ul>
-        <button className="btn btn-primary welcome-cta" onClick={onDismiss}>
-          {t('welcome.cta')}
-        </button>
+        <div className="welcome-actions">
+          <button className="btn btn-primary welcome-cta" onClick={onDismiss}>
+            {t('welcome.cta')}
+          </button>
+          <ImportExport variant="welcome" onImported={onDismiss} />
+        </div>
       </div>
     </div>
   )

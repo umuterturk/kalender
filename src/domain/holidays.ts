@@ -1,7 +1,7 @@
 import { addDays } from './calendar'
-import type { CalendarDateOverride, HolidayPeriod } from './types'
+import type { CalendarDateOverride, CountryCode, HolidayPeriod } from './types'
 
-export type CountryCode = 'TR'
+export type { CountryCode }
 
 export const TURKEY_HOLIDAY_PERIODS_2026: HolidayPeriod[] = [
   { id: 'tr-2026-new-year', label: 'Yılbaşı', start: '2026-01-01', end: '2026-01-01', officialKind: 'new-year' },
@@ -113,6 +113,14 @@ export function seedHolidayState(
   overrides: CalendarDateOverride[] | undefined,
   country: CountryCode,
 ): { holidayPeriods: HolidayPeriod[]; calendarOverrides: CalendarDateOverride[] } {
+  if (country !== 'TR') {
+    const custom = (periods ?? []).filter(p => !p.officialKind)
+    const lifted = liftCustomHolidayOverrides(overrides ?? [], custom)
+    return {
+      holidayPeriods: sortPeriods(lifted),
+      calendarOverrides: syncHolidayOverrides(overrides ?? [], lifted),
+    }
+  }
   const merged = mergeOfficialPeriods(periods ?? [], country)
   const lifted = liftCustomHolidayOverrides(overrides ?? [], merged)
   return {

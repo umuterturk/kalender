@@ -95,8 +95,15 @@
   line-height: 1.4;
 }
 
-.welcome-cta {
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   margin-top: var(--space-2);
+}
+
+.welcome-cta {
+  margin-top: 0;
   width: 100%;
 }
 

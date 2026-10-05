@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { trackPageView } from './analytics'
 import { AppLayout } from './ui/layout/AppLayout'
 import { SettingsPage } from './ui/settings/SettingsPage'
 import { MonthWorkspace } from './ui/month/MonthWorkspace'
@@ -7,10 +8,17 @@ import { PeoplePage } from './ui/people/PeoplePage'
 import { PersonPage } from './ui/people/PersonPage'
 import { ActualsPage } from './ui/actuals/ActualsPage'
 import { WelcomeDialog } from './ui/welcome/WelcomeDialog'
+import { markWelcomeSeen, welcomeHasBeenSeen } from './ui/welcome/welcomeSeen'
 import { useStore } from './store/useStore'
 import { localToday } from './domain/calendar'
 
-const WELCOME_KEY = 'kalender.welcomeSeen'
+function TrackPageViews() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    trackPageView(pathname)
+  }, [pathname])
+  return null
+}
 
 export default function App() {
   const { roster, loading } = useStore()
@@ -18,15 +26,11 @@ export default function App() {
 
   useEffect(() => {
     if (loading) return
-    try {
-      setShowWelcome(localStorage.getItem(WELCOME_KEY) !== '1')
-    } catch {
-      setShowWelcome(true)
-    }
-  }, [loading])
+    setShowWelcome(!welcomeHasBeenSeen())
+  }, [loading, roster])
 
   function dismissWelcome() {
-    try { localStorage.setItem(WELCOME_KEY, '1') } catch { /* ignore */ }
+    markWelcomeSeen()
     setShowWelcome(false)
   }
 
@@ -45,6 +49,7 @@ export default function App() {
       <>
         {welcome}
         <BrowserRouter basename={basename}>
+          <TrackPageViews />
           <Routes>
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/setup" element={<Navigate to="/settings" replace />} />
@@ -59,6 +64,7 @@ export default function App() {
     <>
       {welcome}
       <BrowserRouter basename={basename}>
+        <TrackPageViews />
         <Routes>
           <Route path="/" element={<AppLayout />}>
             <Route index element={<Navigate to={`/month/${todayMonth}`} replace />} />
