@@ -88,8 +88,10 @@ export function generatePlan(
   // Dates that are locked
   const lockedDates = new Set(lockedAssignments.map(a => a.date))
 
-  // All open dates to fill
-  const openDates = dates.filter(d => !lockedDates.has(d) && !actualDates.has(d))
+  // Fill only from history start — earlier days are optional history, not required plan.
+  const openDates = dates.filter(d =>
+    d >= historyStart && !lockedDates.has(d) && !actualDates.has(d)
+  )
 
   // ─── Helper: build a draft revision for fairness computation ───────────────
 

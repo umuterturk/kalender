@@ -115,6 +115,8 @@ export function validateRevision(
   for (const a of assignments) {
     const owner = a.allocatedTo ?? a.personId ?? ''
     const person = people.find(p => p.id === owner)
+    // Days before history start are optional history, not roster-membership checks.
+    if (a.date < roster.historyStartDate && person) continue
     if (!person || !isMemberOn(person, a.date)) {
       hardErrors.push({
         date: a.date,
@@ -129,8 +131,9 @@ export function validateRevision(
 
   // ─── Advisory warnings ────────────────────────────────────────────────────
 
-  // No coverage for a date
+  // No coverage for a date — only days in the fairness/planning window.
   for (const date of dates) {
+    if (date < roster.historyStartDate) continue
     const covered = (byDate.get(date)?.length ?? 0) > 0
     const actualCovered = actuals?.some(ac => ac.date === date && ac.status !== 'cancelled') ?? false
     if (!covered && !actualCovered) {

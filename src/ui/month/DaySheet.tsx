@@ -306,7 +306,7 @@ export function DaySheet({
           const pinned = assigned && !!assignment && (assignment.locked || assignment.source === 'manual')
           const vacation = isOnVacation(person, date)
           const pref = getPreference(person, date)
-          const member = isMemberOn(person, date)
+          const member = isMemberOn(person, date) || date < roster.historyStartDate
           const onRest = hasRestObligationOn(person.id, date, leaves)
           const off = vacation || onRest
 

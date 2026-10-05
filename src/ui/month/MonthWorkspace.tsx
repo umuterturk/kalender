@@ -376,7 +376,8 @@ export function MonthWorkspace() {
     clearPersonHighlight()
     if (!roster) return
     const person = people.find(p => p.id === personId)
-    if (!person || !isMemberOn(person, date)) return
+    if (!person) return
+    if (date >= roster.historyStartDate && !isMemberOn(person, date)) return
     const base = ensureDraft()
     if (!base) return
     const newAssignment: Assignment = {
@@ -529,7 +530,7 @@ export function MonthWorkspace() {
   )
 
   const impossibleDates = dates
-    .filter(date => !assignmentMap.has(date))
+    .filter(date => date >= roster.historyStartDate && !assignmentMap.has(date))
     .map(date => ({
       date,
       ...explainDateBlocks(date, people, activeDraftLeaves, activeRevision?.assignments ?? []),
