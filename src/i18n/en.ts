@@ -292,7 +292,7 @@ export const en = {
     stepPeople: 'People',
     country: 'Country',
     countryTR: 'Türkiye',
-    countryHelp: 'Official 2026 and 2027 public holidays for Türkiye are added to the calendar. You can still edit any day.',
+    countryHelp: 'Official 2026 and 2027 public holidays for Türkiye are added automatically. Manage the list in Settings.',
     rosterName: 'Roster name',
     historyStart: 'History start date',
     historyHelp: 'Fairness targets accrue from this date. Only confirmed data before this date counts.',
@@ -321,6 +321,17 @@ export const en = {
 
   settings: {
     saved: 'Saved',
+    holidaysTitle: 'Public holidays',
+    holidaysHelp: 'Each holiday is a named range. Change the start or end when extra days are granted.',
+    holidayAddTitle: 'Add a custom public holiday',
+    holidayStart: 'Start',
+    holidayEnd: 'End',
+    holidayName: 'Name',
+    holidayNamePlaceholder: 'e.g. Hospital foundation day',
+    holidayAdd: 'Add holiday',
+    holidayStartRequired: 'Choose a start date.',
+    holidayNameRequired: 'Enter a name.',
+    holidayRangeInvalid: 'End date must be on or after the start date.',
   },
 
   welcome: {

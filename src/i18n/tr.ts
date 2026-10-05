@@ -294,7 +294,7 @@ export const tr: Messages = {
     stepPeople: 'Kişiler',
     country: 'Ülke',
     countryTR: 'Türkiye',
-    countryHelp: 'Türkiye’nin 2026 ve 2027 resmi tatilleri takvime eklenir. İstediğiniz günü sonra değiştirebilirsiniz.',
+    countryHelp: 'Türkiye’nin 2026 ve 2027 resmi tatilleri otomatik eklenir. Listeyi Ayarlar’dan yönetebilirsiniz.',
     rosterName: 'Liste adı',
     historyStart: 'Geçmiş başlangıç tarihi',
     historyHelp: 'Adalet hedefleri bu tarihten itibaren birikir. Bu tarihten önce yalnızca onaylanmış veriler sayılır.',
@@ -323,6 +323,17 @@ export const tr: Messages = {
 
   settings: {
     saved: 'Kaydedildi',
+    holidaysTitle: 'Resmi Tatiller',
+    holidaysHelp: 'Her resmi tatil bir aralıktır. Devlet ek gün verirse başlangıç veya bitişi uzatın.',
+    holidayAddTitle: 'Özel resmi tatil ekle',
+    holidayStart: 'Başlangıç',
+    holidayEnd: 'Bitiş',
+    holidayName: 'Ad',
+    holidayNamePlaceholder: 'ör. Hastane kuruluş günü',
+    holidayAdd: 'Tatil ekle',
+    holidayStartRequired: 'Başlangıç tarihi seçin.',
+    holidayNameRequired: 'Bir ad girin.',
+    holidayRangeInvalid: 'Bitiş, başlangıçtan önce olamaz.',
   },
 
   welcome: {

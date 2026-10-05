@@ -133,6 +133,16 @@ export interface CalendarDateOverride {
   label?: string
 }
 
+/** A named public-holiday range. Inclusive start and end. */
+export interface HolidayPeriod {
+  id: string
+  label: string
+  start: IsoDate
+  end: IsoDate
+  /** Stable official type, e.g. republic / ramazan. Absent for custom ranges. */
+  officialKind?: string
+}
+
 /**
  * Per-duty operational requirements for automatic scheduling.
  * When requiredQualification is set, only people who hold that qualification
@@ -329,6 +339,7 @@ export interface KalenderState {
   roster: Roster | null
   people: Person[]
   calendarOverrides: CalendarDateOverride[]
+  holidayPeriods: HolidayPeriod[]
   revisions: PlanRevision[]
   actuals: ActualShift[]
   leaves: LeaveObligation[]

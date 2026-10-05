@@ -1,0 +1,177 @@
+.holidays-section {
+  gap: var(--space-4);
+}
+
+.holiday-year {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.holiday-year-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 6px 2px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  flex-wrap: nowrap;
+}
+
+.holiday-year-title::-webkit-details-marker {
+  display: none;
+}
+
+.holiday-year-title::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 0 5px 7px;
+  border-color: transparent transparent transparent var(--ink-3);
+  transform: rotate(0deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.holiday-year[open] .holiday-year-title::before {
+  transform: rotate(90deg);
+}
+
+.holiday-year-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-3);
+}
+
+.holiday-add-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+}
+
+.holiday-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.holiday-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.holiday-item:last-child {
+  border-bottom: none;
+}
+
+.holiday-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.holiday-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.holiday-item-name {
+  font-weight: var(--weight-semibold);
+  min-width: 0;
+}
+
+.holiday-name-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.holiday-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 6px;
+  width: 100%;
+}
+
+.holiday-range-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.holiday-range-field span {
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.holiday-range-field .input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.45rem 0.4rem;
+  font-size: 13px;
+}
+
+.holiday-range-field input[type='date'] {
+  min-width: 0;
+}
+
+.holiday-range-sep {
+  color: var(--ink-3);
+  padding-bottom: 8px;
+}
+
+.holiday-remove {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: var(--text-xs);
+  margin-left: auto;
+}
+
+.holiday-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.holiday-add-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.holiday-add-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.holiday-add-range .input {
+  width: 100%;
+  min-width: 0;
+}

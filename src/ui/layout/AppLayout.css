@@ -196,7 +196,7 @@
     -webkit-backdrop-filter: blur(20px);
     border-top: 1px solid rgba(200, 212, 222, 0.8);
     box-shadow: 0 -8px 28px rgba(15, 28, 36, 0.06);
-    z-index: 40;
+    z-index: 60;
   }
 
   .bottom-nav .nav-item {

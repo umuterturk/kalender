@@ -1070,20 +1070,23 @@
     right: 0;
     bottom: calc(var(--bottom-nav-height) + var(--safe-bottom));
     width: 100%;
+    height: auto;
     max-height: min(78dvh, 640px);
     border: none;
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     box-shadow: var(--shadow-sheet);
     background: var(--surface);
-    z-index: 50;
-    transform: translateY(110%);
-    transition: transform var(--dur-slow) var(--ease-out);
+    z-index: 55;
+    transform: translateY(calc(100% + var(--bottom-nav-height) + var(--safe-bottom) + 16px));
+    transition: transform var(--dur-slow) var(--ease-out), visibility var(--dur-slow) var(--ease-out);
     pointer-events: none;
+    visibility: hidden;
   }
 
   .workspace-side.open {
     transform: translateY(0);
     pointer-events: auto;
+    visibility: visible;
   }
 
   .sheet-backdrop {
@@ -1091,7 +1094,7 @@
     position: fixed;
     inset: 0;
     background: rgba(15, 28, 36, 0.35);
-    z-index: 45;
+    z-index: 50;
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--dur) var(--ease-out);

@@ -6,6 +6,7 @@ import type { Roster } from '../../domain/types'
 import { localToday } from '../../domain/calendar'
 import { useI18n } from '../../i18n'
 import { RestPoliciesSection } from '../policies/RestPoliciesSection'
+import { HolidaysSection } from './HolidaysSection'
 import '../setup/SetupPage.css'
 import '../policies/PoliciesPage.css'
 import './SettingsPage.css'
@@ -178,6 +179,8 @@ export function SettingsPage() {
             </div>
           </div>
         </section>
+
+        {!firstTime && <HolidaysSection />}
 
         {!firstTime && (
           <div className="settings-rules">

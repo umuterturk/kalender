@@ -7,12 +7,12 @@ import React, { createContext, useContext, useEffect, useReducer, useCallback } 
 import type {
   KalenderState, Roster, Person, CalendarDateOverride, PlanRevision,
   Assignment, ActualShift, LeaveObligation, MonthlyConditions, Membership,
-  RestPolicy
+  RestPolicy, HolidayPeriod
 } from '../domain/types'
 import { loadState, saveState, migrateState } from './db'
 import { registerLiveState } from '../debug/consoleApi'
 import { nanoid } from '../lib/nanoid'
-import { mergeOfficialHolidays } from '../domain/holidays'
+import { dateInPeriods, seedHolidayState, syncHolidayOverrides } from '../domain/holidays'
 
 // ─── Initial state ─────────────────────────────────────────────────────────
 
@@ -20,6 +20,7 @@ const INITIAL_STATE: KalenderState = {
   roster: null,
   people: [],
   calendarOverrides: [],
+  holidayPeriods: [],
   revisions: [],
   actuals: [],
   leaves: [],
@@ -35,6 +36,8 @@ export type Action =
   | { type: 'SET_MONTHLY_CONDITIONS'; payload: { personId: string; month: string; conditions: MonthlyConditions } }
   | { type: 'SET_CALENDAR_OVERRIDE'; payload: CalendarDateOverride }
   | { type: 'REMOVE_CALENDAR_OVERRIDE'; payload: string /* date */ }
+  | { type: 'UPSERT_HOLIDAY_PERIOD'; payload: HolidayPeriod }
+  | { type: 'REMOVE_HOLIDAY_PERIOD'; payload: string /* id */ }
   | { type: 'ADD_REST_POLICY'; payload: RestPolicy }
   | { type: 'SAVE_REVISION'; payload: PlanRevision }
   | { type: 'PUBLISH_REVISION'; payload: { revisionId: string; publishedAt: string } }
@@ -54,12 +57,13 @@ function reducer(state: KalenderState, action: Action): KalenderState {
     case 'SETUP_ROSTER': {
       const firstSetup = !state.roster
       const country = action.payload.country ?? 'TR'
+      const holidays = firstSetup
+        ? seedHolidayState(state.holidayPeriods, state.calendarOverrides, country)
+        : null
       return {
         ...state,
         roster: { ...action.payload, country },
-        calendarOverrides: firstSetup
-          ? mergeOfficialHolidays(state.calendarOverrides, country)
-          : state.calendarOverrides,
+        ...(holidays ?? {}),
       }
     }
 
@@ -86,14 +90,58 @@ function reducer(state: KalenderState, action: Action): KalenderState {
 
     case 'SET_CALENDAR_OVERRIDE': {
       const existing = state.calendarOverrides.filter(o => o.date !== action.payload.date)
-      return { ...state, calendarOverrides: [...existing, action.payload] }
-    }
-
-    case 'REMOVE_CALENDAR_OVERRIDE':
+      const overrides = [...existing, action.payload]
+      if (!action.payload.holiday || dateInPeriods(action.payload.date, state.holidayPeriods)) {
+        return { ...state, calendarOverrides: overrides }
+      }
+      const period: HolidayPeriod = {
+        id: nanoid(),
+        label: (action.payload.label || action.payload.date).trim(),
+        start: action.payload.date,
+        end: action.payload.date,
+      }
+      const holidayPeriods = [...state.holidayPeriods, period]
       return {
         ...state,
-        calendarOverrides: state.calendarOverrides.filter(o => o.date !== action.payload)
+        holidayPeriods,
+        calendarOverrides: syncHolidayOverrides(overrides, holidayPeriods),
       }
+    }
+
+    case 'REMOVE_CALENDAR_OVERRIDE': {
+      const holidayPeriods = state.holidayPeriods.filter(p =>
+        !(p.start === action.payload && p.end === action.payload && !p.officialKind)
+      )
+      return {
+        ...state,
+        holidayPeriods,
+        calendarOverrides: syncHolidayOverrides(
+          state.calendarOverrides.filter(o => o.date !== action.payload),
+          holidayPeriods,
+        ),
+      }
+    }
+
+    case 'UPSERT_HOLIDAY_PERIOD': {
+      const holidayPeriods = [
+        ...state.holidayPeriods.filter(p => p.id !== action.payload.id),
+        action.payload,
+      ]
+      return {
+        ...state,
+        holidayPeriods,
+        calendarOverrides: syncHolidayOverrides(state.calendarOverrides, holidayPeriods),
+      }
+    }
+
+    case 'REMOVE_HOLIDAY_PERIOD': {
+      const holidayPeriods = state.holidayPeriods.filter(p => p.id !== action.payload)
+      return {
+        ...state,
+        holidayPeriods,
+        calendarOverrides: syncHolidayOverrides(state.calendarOverrides, holidayPeriods),
+      }
+    }
 
     case 'ADD_REST_POLICY':
       if (!state.roster) return state

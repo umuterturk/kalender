@@ -22,7 +22,7 @@ import { FairnessSummary } from '../fairness/FairnessSummary'
 import { ReviewSheet } from '../review/ReviewSheet'
 import { IssuesBar } from './IssuesBar'
 import {
-  IconCalendar, IconChevronLeft, IconChevronRight, IconClose, IconHoliday, IconLock, IconMenu, IconPeople, IconPrefNo, IconPublish, IconTrash, IconVacation, IconWand, IconWarn,
+  IconCalendar, IconChevronLeft, IconChevronRight, IconClose, IconLock, IconMenu, IconPeople, IconPrefNo, IconPublish, IconTrash, IconVacation, IconWand, IconWarn,
 } from '../icons'
 import { useI18n, type MessageKey } from '../../i18n'
 import './MonthWorkspace.css'
@@ -65,7 +65,6 @@ export function MonthWorkspace() {
   const [sidePanel, setSidePanel] = useState<'fairness' | 'day' | 'people' | 'issues'>('fairness')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [holidayMode, setHolidayMode] = useState(false)
   const [showReview, setShowReview] = useState(false)
   const [clearMonthOpen, setClearMonthOpen] = useState(false)
   const [clearAlsoPrefs, setClearAlsoPrefs] = useState(false)
@@ -306,29 +305,7 @@ export function MonthWorkspace() {
 
   function handleDateClick(date: string) {
     clearPersonHighlight()
-    if (holidayMode) {
-      toggleHoliday(date)
-      return
-    }
     openSide('day', date)
-  }
-
-  function toggleHoliday(date: string) {
-    if (!roster) return
-    const existing = calendarOverrides.find(o => o.date === date)
-    const src = holidaySource(date, roster, calendarOverrides)
-    if (!existing) {
-      // Currently weekend default (holiday) → force normal
-      if (src === 'weekend-default') {
-        dispatch({ type: 'SET_CALENDAR_OVERRIDE', payload: { date, holiday: false } })
-      } else {
-        // Currently normal → mark holiday
-        dispatch({ type: 'SET_CALENDAR_OVERRIDE', payload: { date, holiday: true } })
-      }
-    } else {
-      // Remove override (revert to default)
-      dispatch({ type: 'REMOVE_CALENDAR_OVERRIDE', payload: date })
-    }
   }
 
   function handleSetOfficialHoliday(date: string, wantHoliday: boolean) {
@@ -610,15 +587,6 @@ export function MonthWorkspace() {
           onClick={() => { setView('people'); clearPersonHighlight() }}
         >{t('month.people')}</button>
       </div>
-      {!holidayMode && (
-        <button
-          className="btn btn-ghost"
-          onClick={() => { setHolidayMode(true); clearPersonHighlight() }}
-          title={t('month.toggleHoliday')}
-        >
-          <IconHoliday size={16} /> {t('month.holidays')}
-        </button>
-      )}
       <button
         className="btn btn-ghost"
         onClick={openClearMonth}
@@ -703,12 +671,6 @@ export function MonthWorkspace() {
             <IconPublish size={16} /> {t('month.publish')}
           </button>
           <button
-            className={`btn btn-ghost ${holidayMode ? 'holiday-mode-active' : ''}`}
-            onClick={() => { setHolidayMode(m => !m); clearPersonHighlight(); closeDrawer() }}
-          >
-            <IconHoliday size={16} /> {holidayMode ? t('month.holidayModeOn') : t('month.holidays')}
-          </button>
-          <button
             className="btn btn-ghost"
             onClick={openClearMonth}
             disabled={!canClearMonth}
@@ -759,16 +721,6 @@ export function MonthWorkspace() {
           )}
         </div>
         <div className="topbar-actions">
-          {holidayMode && (
-            <button
-              type="button"
-              className="btn holiday-mode-off"
-              onClick={() => { setHolidayMode(false); clearPersonHighlight() }}
-              title={t('month.holidayModeOff')}
-            >
-              <IconHoliday size={16} /> {t('month.holidayModeOff')}
-            </button>
-          )}
           <div className="actions-desktop">{desktopActions}</div>
           <div className="actions-mobile">
             <button
@@ -828,7 +780,6 @@ export function MonthWorkspace() {
                           holiday ? 'holiday' : '',
                           hasConflict ? 'conflict' : '',
                           selectedDate === date ? 'selected' : '',
-                          holidayMode ? 'holiday-editable' : '',
                           isPast ? 'past' : '',
                           isToday ? 'today' : '',
                           personRelated ? 'person-related' : '',
@@ -868,7 +819,7 @@ export function MonthWorkspace() {
                               )}
                             </>
                           ) : (
-                            !holidayMode && <span className="cell-unassigned">—</span>
+                            <span className="cell-unassigned">—</span>
                           )}
                         </div>
                         <div className="cell-marks">
@@ -921,7 +872,7 @@ export function MonthWorkspace() {
           onClick={() => setSheetOpen(false)}
         />
 
-        <aside className={`workspace-side ${sheetOpen ? 'open' : ''}`}>
+        <aside className={`workspace-side ${sheetOpen ? 'open' : ''}`} aria-hidden={!sheetOpen}>
           <div className="sheet-handle" />
           <button className="sheet-close btn btn-ghost" aria-label={t('month.closePanel')} onClick={() => setSheetOpen(false)}>
             <IconClose size={18} />
