@@ -60,7 +60,11 @@ export function migrateState(state: KalenderState): KalenderState {
   return {
     ...state,
     roster: state.roster
-      ? { ...state.roster, country }
+      ? {
+          ...state.roster,
+          country,
+          staffingPolicies: state.roster.staffingPolicies ?? [],
+        }
       : null,
     holidayPeriods: holidays.holidayPeriods,
     calendarOverrides: holidays.calendarOverrides,

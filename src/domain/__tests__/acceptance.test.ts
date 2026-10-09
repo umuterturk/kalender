@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   ActualShift, Assignment, CalendarDateOverride, DutyRequirements, Person, PreferenceType, Roster,
 } from '../types'
+import { monthDates } from '../calendar'
 import { classifyDay, computeFairness, type FairnessReport } from '../fairness'
 import { generatePlan, type GenerateResult } from '../generate'
 import { repairPlan } from '../repair'
@@ -25,10 +26,22 @@ function roster(overrides: Partial<Roster> = {}): Roster {
     historyStartDate: '2024-01-01',
     weekendHolidayDefault: false,
     restPolicies: [],
+    staffingPolicies: [],
     fairnessTolerance: 0.25,
     rareEventOccurrences: 3,
     ...overrides,
   }
+}
+
+function withStaffing(headcount: number, base: Roster = roster()): Roster {
+  return roster({
+    ...base,
+    staffingPolicies: [{
+      id: 'staff',
+      effectiveFrom: '2020-01-01',
+      requiredHeadcount: headcount,
+    }],
+  })
 }
 
 function withNextDayOff(base: Roster = roster()): Roster {
@@ -198,6 +211,13 @@ function autoSchedule(
 
 function whoWorks(result: GenerateResult, date: string): string | undefined {
   return result.assignments.find(item => item.date === date)?.allocatedTo
+}
+
+function whoAllWork(result: GenerateResult, date: string): string[] {
+  return result.assignments
+    .filter(item => item.date === date)
+    .map(item => item.allocatedTo)
+    .sort()
 }
 
 function review(month: string, people: Person[], duties: Assignment[], rules = roster()) {
@@ -1043,5 +1063,155 @@ describe('36. Future schedules must naturally compensate historical imbalance', 
     const aliDays = october.assignments.filter(item => item.allocatedTo === 'Ali').length
 
     expect(aliDays).toBeGreaterThan(ayseDays)
+  })
+})
+
+// ─── Staffing policy ────────────────────────────────────────────────────────
+
+describe('Staffing policy: a shift can require more than one person', () => {
+  it('staffs a shift that requires two people with exactly two distinct people', () => {
+    const people = [person('Ali'), person('Ayşe'), person('Can')]
+    const result = autoSchedule('2026-10', people, { rules: withStaffing(2) })
+
+    expect(result.outcomeStatus).toBe('feasible-best-found')
+    for (const date of monthDates('2026-10')) {
+      const names = whoAllWork(result, date)
+      expect(names).toHaveLength(2)
+      expect(new Set(names).size).toBe(2)
+    }
+  })
+
+  it('still staffs exactly one person when no staffing policy is set', () => {
+    const result = autoSchedule('2026-10', [person('Ali'), person('Ayşe')])
+
+    expect(result.outcomeStatus).toBe('feasible-best-found')
+    for (const date of monthDates('2026-10')) {
+      expect(whoAllWork(result, date)).toHaveLength(1)
+    }
+  })
+
+  it('still staffs exactly one person when the policy asks for one', () => {
+    const result = autoSchedule('2026-10', [person('Ali'), person('Ayşe')], {
+      rules: withStaffing(1),
+    })
+
+    expect(result.outcomeStatus).toBe('feasible-best-found')
+    for (const date of monthDates('2026-10')) {
+      expect(whoAllWork(result, date)).toHaveLength(1)
+    }
+  })
+
+  it('applies a higher headcount only from the policy effective date', () => {
+    const rules = roster({
+      staffingPolicies: [{
+        id: 'staff',
+        effectiveFrom: '2026-10-15',
+        requiredHeadcount: 2,
+      }],
+    })
+    const result = autoSchedule('2026-10', [person('Ali'), person('Ayşe'), person('Can')], { rules })
+
+    expect(whoAllWork(result, '2026-10-14')).toHaveLength(1)
+    expect(whoAllWork(result, '2026-10-15')).toHaveLength(2)
+    expect(new Set(whoAllWork(result, '2026-10-15')).size).toBe(2)
+  })
+
+  it('lets one shift require more people than the policy default', () => {
+    const people = [person('Ali'), person('Ayşe'), person('Can')]
+    const result = autoSchedule('2026-10', people, {
+      rules: withStaffing(1),
+      duties: { '2026-10-05': { requiredHeadcount: 3 } },
+    })
+
+    expect(whoAllWork(result, '2026-10-05')).toEqual(['Ali', 'Ayşe', 'Can'])
+    expect(whoAllWork(result, '2026-10-06')).toHaveLength(1)
+    expect(result.outcomeStatus).toBe('feasible-best-found')
+  })
+
+  it('reports the gap when fewer people are available than the shift requires', () => {
+    const people = [person('Ali'), person('Ayşe')]
+    const result = autoSchedule('2026-10', people, { rules: withStaffing(3) })
+    const dates = monthDates('2026-10')
+
+    expect(result.outcomeStatus).toBe('proven-infeasible')
+    for (const date of dates) {
+      const names = whoAllWork(result, date)
+      expect(names).toEqual(['Ali', 'Ayşe'])
+      expect(new Set(names).size).toBe(names.length)
+    }
+    const gaps = result.warnings.filter(warning => warning.type === 'NO_COVERAGE')
+    expect(gaps).toHaveLength(dates.length)
+    expect(gaps.every(warning => warning.data?.filled === 2 && warning.data?.required === 3)).toBe(true)
+  })
+
+  it('does not give both slots to the person who is furthest behind', () => {
+    const people = [person('Ali'), person('Ayşe'), person('Can')]
+    const result = autoSchedule('2026-10', people, {
+      rules: withStaffing(2),
+      earlierDuties: manyDuties('Ali', '2026-09-01', 12),
+    })
+
+    expect(whoAllWork(result, '2026-10-05')).toEqual(['Ayşe', 'Can'])
+  })
+
+  it('keeps the following-day rest policy for every person on the shift', () => {
+    const people = [person('Ali'), person('Ayşe'), person('Can'), person('Deniz')]
+    const result = autoSchedule('2026-10', people, {
+      rules: withNextDayOff(withStaffing(2)),
+      keep: [
+        duty('2026-10-05', 'Ali', 'manual'),
+        duty('2026-10-05', 'Ayşe', 'manual'),
+      ],
+    })
+
+    expect(whoAllWork(result, '2026-10-05')).toEqual(['Ali', 'Ayşe'])
+    expect(whoAllWork(result, '2026-10-06')).toEqual(['Can', 'Deniz'])
+    expect(result.outcomeStatus).toBe('feasible-best-found')
+  })
+
+  it('leaves the next day open when rest and headcount cannot both be met', () => {
+    const result = autoSchedule('2026-10', [person('Ali'), person('Ayşe')], {
+      rules: withNextDayOff(withStaffing(2)),
+    })
+
+    expect(whoAllWork(result, '2026-10-01')).toEqual(['Ali', 'Ayşe'])
+    expect(whoAllWork(result, '2026-10-02')).toEqual([])
+    expect(result.warnings.some(warning => warning.type === 'NO_COVERAGE' && warning.date === '2026-10-02')).toBe(true)
+    expect(result.outcomeStatus).toBe('proven-infeasible')
+  })
+
+  it('still requires the qualification on every slot of a multi-person shift', () => {
+    const nurse = person('Ali', { qualifications: ['icu'] })
+    const nurse2 = person('Ayşe', { qualifications: ['icu'] })
+    const clerk = person('Can')
+    const clerk2 = person('Deniz')
+    const result = autoSchedule('2026-10', [nurse, nurse2, clerk, clerk2], {
+      rules: withStaffing(2),
+      earlierDuties: [
+        ...manyDuties('Ali', '2026-09-01', 10),
+        ...manyDuties('Ayşe', '2026-09-01', 10),
+      ],
+      duties: { '2026-10-05': { requiredQualification: 'icu' } },
+    })
+
+    expect(whoAllWork(result, '2026-10-05')).toEqual(['Ali', 'Ayşe'])
+  })
+
+  it('refuses to publish the same person in two slots, and accepts two distinct people', () => {
+    const people = [person('Ali'), person('Ayşe')]
+    const rules = withStaffing(2)
+    const duplicated = review('2026-10', people, [
+      duty('2026-10-05', 'Ali', 'manual'),
+      duty('2026-10-05', 'Ali', 'manual'),
+    ], rules)
+    const distinct = review('2026-10', people, [
+      duty('2026-10-05', 'Ali', 'manual'),
+      duty('2026-10-05', 'Ayşe', 'manual'),
+    ], rules)
+
+    expect(duplicated.publishable).toBe(false)
+    expect(duplicated.hardErrors.some(error => error.kind === 'duplicate-date' && error.personId === 'Ali')).toBe(true)
+    expect(distinct.publishable).toBe(true)
+    expect(distinct.hardErrors).toEqual([])
   })
 })

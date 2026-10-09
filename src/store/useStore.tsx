@@ -7,7 +7,7 @@ import React, { createContext, useContext, useEffect, useReducer, useCallback } 
 import type {
   KalenderState, Roster, Person, CalendarDateOverride, PlanRevision,
   Assignment, ActualShift, LeaveObligation, MonthlyConditions, Membership,
-  RestPolicy, HolidayPeriod
+  RestPolicy, StaffingPolicy, HolidayPeriod
 } from '../domain/types'
 import { loadState, saveState, migrateState } from './db'
 import { registerLiveState } from '../debug/consoleApi'
@@ -39,6 +39,7 @@ export type Action =
   | { type: 'UPSERT_HOLIDAY_PERIOD'; payload: HolidayPeriod }
   | { type: 'REMOVE_HOLIDAY_PERIOD'; payload: string /* id */ }
   | { type: 'ADD_REST_POLICY'; payload: RestPolicy }
+  | { type: 'ADD_STAFFING_POLICY'; payload: StaffingPolicy }
   | { type: 'SAVE_REVISION'; payload: PlanRevision }
   | { type: 'PUBLISH_REVISION'; payload: { revisionId: string; publishedAt: string } }
   | { type: 'MARK_STALE'; payload: { revisionId: string } }
@@ -151,6 +152,16 @@ function reducer(state: KalenderState, action: Action): KalenderState {
         roster: {
           ...state.roster,
           restPolicies: [...state.roster.restPolicies, action.payload]
+        }
+      }
+
+    case 'ADD_STAFFING_POLICY':
+      if (!state.roster) return state
+      return {
+        ...state,
+        roster: {
+          ...state.roster,
+          staffingPolicies: [...(state.roster.staffingPolicies ?? []), action.payload],
         }
       }
 

@@ -34,6 +34,7 @@ const BASE_ROSTER: Roster = {
   historyStartDate: '2025-01-01',
   weekendHolidayDefault: true,
   restPolicies: [],
+  staffingPolicies: [],
   fairnessTolerance: 0.25,
   rareEventOccurrences: 3,
 }

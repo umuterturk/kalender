@@ -5,8 +5,8 @@
  *
  * Per the core design:
  *   - Fairness rules and scheduling policies are ADVISORY — they never block publish.
- *   - Only hard structural errors prevent saving: duplicate date, or assigning a
- *     non-member (the person never belonged to this roster on that date).
+ *   - Only hard structural errors prevent saving: the same person twice on one
+ *     shift, or assigning a non-member.
  *   - "No coverage" is a warning, not a block — the administrator may publish an
  *     incomplete schedule if they choose.
  *
@@ -17,7 +17,7 @@ import type {
   IsoDate, Person, Roster, Assignment, PlanRevision, CalendarDateOverride,
   LeaveObligation, ActualShift, ScheduleWarning, WarningType, DutyRequirements
 } from './types'
-import { monthDates, monthOf, isHoliday } from './calendar'
+import { monthDates, monthOf, isHoliday, requiredHeadcount } from './calendar'
 import {
   isMemberOn, isUnavailableOn, hasRestObligationOn, countAssignmentsInMonth,
   getPreference, holdsQualification
@@ -92,7 +92,7 @@ export function validateRevision(
   const dates = monthDates(month)
   const assignments = revision.assignments
 
-  // ─── Hard error: duplicate date ──────────────────────────────────────────
+  // ─── Hard error: one person filling two slots of the same shift ─────────
 
   const byDate = new Map<IsoDate, Assignment[]>()
   for (const a of assignments) {
@@ -100,12 +100,22 @@ export function validateRevision(
     byDate.get(a.date)!.push(a)
   }
   for (const [date, as] of byDate) {
-    if (as.length > 1) {
+    const counts = new Map<string, number>()
+    for (const a of as) {
+      const id = a.allocatedTo ?? a.personId ?? ''
+      if (!id) continue
+      counts.set(id, (counts.get(id) ?? 0) + 1)
+    }
+    for (const [personId, count] of counts) {
+      if (count < 2) continue
+      const person = people.find(p => p.id === personId)
       hardErrors.push({
         date,
-        personId: null,
+        personId,
         kind: 'duplicate-date',
-        message: `Multiple assignments on ${date}`,
+        message: person
+          ? `${person.name} is assigned more than once on ${date}`
+          : `Person ${personId} is assigned more than once on ${date}`,
       })
     }
   }
@@ -131,17 +141,27 @@ export function validateRevision(
 
   // ─── Advisory warnings ────────────────────────────────────────────────────
 
-  // No coverage for a date — only days in the fairness/planning window.
+  // Short staffing — only days in the fairness/planning window.
   for (const date of dates) {
     if (date < roster.historyStartDate) continue
-    const covered = (byDate.get(date)?.length ?? 0) > 0
-    const actualCovered = actuals?.some(ac => ac.date === date && ac.status !== 'cancelled') ?? false
-    if (!covered && !actualCovered) {
+    const required = requiredHeadcount(date, roster, dutyRequirements)
+    const ids = new Set<string>()
+    for (const a of byDate.get(date) ?? []) {
+      const id = a.allocatedTo ?? a.personId ?? ''
+      if (id) ids.add(id)
+    }
+    for (const actual of actuals ?? []) {
+      if (actual.date !== date || actual.status === 'cancelled') continue
+      const id = actual.plannedPersonId ?? actual.actualPersonId
+      if (id) ids.add(id)
+    }
+    if (ids.size < required) {
       warnings.push({
         type: 'NO_COVERAGE',
         severity: 'warning',
         date,
-        message: `No assignment for ${date}`,
+        message: `Shift on ${date} needs ${required} people; ${ids.size} assigned`,
+        data: { required, filled: ids.size },
       })
     }
   }

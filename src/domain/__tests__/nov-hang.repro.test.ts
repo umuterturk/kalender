@@ -23,6 +23,7 @@ const roster: Roster = {
     enabled: true,
     nonworkingTreatment: 'calendar-only',
   }],
+  staffingPolicies: [],
 }
 
 function person(

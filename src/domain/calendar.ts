@@ -4,7 +4,9 @@
  * never a fixed 365-day approximation.
  */
 
-import type { IsoDate, Roster, CalendarDateOverride, RestPolicy } from './types'
+import type {
+  IsoDate, Roster, CalendarDateOverride, RestPolicy, StaffingPolicy, DutyRequirements,
+} from './types'
 
 /** Parse a YYYY-MM-DD string into { y, m, d } (1-based). */
 export function parseDate(d: IsoDate): { y: number; m: number; d: number } {
@@ -143,6 +145,37 @@ export function effectiveRestPolicy(
 ): RestPolicy | null {
   const sorted = [...policies].sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))
   return sorted.find(p => p.effectiveFrom <= date) ?? null
+}
+
+/** Find the staffing policy in force on a date. Latest effectiveFrom wins. */
+export function effectiveStaffingPolicy(
+  date: IsoDate,
+  policies: StaffingPolicy[]
+): StaffingPolicy | null {
+  const sorted = [...policies].sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))
+  return sorted.find(p => p.effectiveFrom <= date) ?? null
+}
+
+function clampHeadcount(value: number): number {
+  if (!Number.isFinite(value)) return 1
+  return Math.max(1, Math.floor(value))
+}
+
+/**
+ * Distinct people required on a shift.
+ * A per-date duty requirement overrides the effective staffing policy.
+ * With neither, the shift needs one person.
+ */
+export function requiredHeadcount(
+  date: IsoDate,
+  roster: Roster,
+  dutyRequirements: DutyRequirements = {},
+): number {
+  const override = dutyRequirements[date]?.requiredHeadcount
+  if (override !== undefined) return clampHeadcount(override)
+  const policy = effectiveStaffingPolicy(date, roster.staffingPolicies ?? [])
+  if (!policy) return 1
+  return clampHeadcount(policy.requiredHeadcount)
 }
 
 /** Is a date an ordinary working day per the roster default and person overrides? */

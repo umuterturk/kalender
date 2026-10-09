@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { nanoid } from '../../lib/nanoid'
 import type { RestPolicy } from '../../domain/types'
+import { StaffingPoliciesSection } from './StaffingPoliciesSection'
 import { useI18n, type MessageKey } from '../../i18n'
 import './PoliciesPage.css'
 
@@ -41,6 +42,7 @@ export function PoliciesPage() {
       </div>
 
       <div className="policies-sections">
+        <StaffingPoliciesSection />
         <section className="card policies-section">
           <div className="section-header">
             <h2 className="section-title">{t('policies.restPolicies')}</h2>

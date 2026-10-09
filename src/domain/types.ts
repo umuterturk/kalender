@@ -110,6 +110,12 @@ export interface Roster {
   weekendHolidayDefault: boolean
   restPolicies: RestPolicy[]
   /**
+   * Effective-dated staffing rules. Each policy sets how many distinct people
+   * a shift needs from its effective date until the next policy.
+   * An empty list means one person per shift.
+   */
+  staffingPolicies: StaffingPolicy[]
+  /**
    * Fairness tolerance for candidate selection.
    * Candidates whose balance is within this margin of the best balance are
    * treated as equally fair and ranked by preference instead.
@@ -152,6 +158,11 @@ export interface HolidayPeriod {
  */
 export interface DutyRequirement {
   requiredQualification?: string
+  /**
+   * Distinct people this one shift needs.
+   * Overrides the effective staffing policy for this date.
+   */
+  requiredHeadcount?: number
 }
 
 /** Optional map of date → duty requirement. Absence means no special requirement. */
@@ -171,6 +182,18 @@ export interface RestPolicy {
    *                    immediate rest day is already non-working.
    */
   nonworkingTreatment: 'none' | 'calendar-only' | 'next-working'
+}
+
+/**
+ * How many distinct people staff each daily shift.
+ * Dated the same way as rest policies: the latest policy with
+ * effectiveFrom <= the shift date applies, until a later one replaces it.
+ */
+export interface StaffingPolicy {
+  id: string
+  effectiveFrom: IsoDate
+  /** Distinct people required on each shift. Minimum 1. */
+  requiredHeadcount: number
 }
 
 // ─── Plan revisions ────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ describe('import/export transfer', () => {
         historyStartDate: '2026-10-05',
         weekendHolidayDefault: true,
         restPolicies: [],
+        staffingPolicies: [],
       },
       people: [{
         id: 'p1',
@@ -55,6 +56,7 @@ describe('import/export transfer', () => {
         historyStartDate: '2026-01-01',
         weekendHolidayDefault: true,
         restPolicies: [],
+        staffingPolicies: [],
       },
     })).toBe(true)
   })

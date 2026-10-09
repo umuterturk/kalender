@@ -4,7 +4,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import {
   monthDates, formatMonth, prevMonth, nextMonth, isHoliday,
-  dayOfWeek, holidaySource, desiredHolidayAction, formatDateLong, formatDateShort, monthStart, monthEnd, localToday, addDays
+  dayOfWeek, holidaySource, desiredHolidayAction, formatDateLong, formatDateShort, monthStart, monthEnd, localToday, addDays,
+  requiredHeadcount,
 } from '../../domain/calendar'
 import { isMemberOn, isOnVacation, isUnavailableOn, hasRestObligationOn, withVacation, withAvoidedDate, explainDateBlocks, withPreference, getPreference, hasMonthPreferences, withoutMonthPreferences } from '../../domain/eligibility'
 import { deriveAssignmentLeaves, deriveActualLeaves, mergeLeaves, previousMonthRestLeaves } from '../../domain/leave'
@@ -223,9 +224,17 @@ export function MonthWorkspace() {
     )
   }
 
-  const assignmentMap = new Map<string, Assignment>()
+  const assignmentsByDate = new Map<string, Assignment[]>()
   if (activeRevision) {
-    for (const a of activeRevision.assignments) assignmentMap.set(a.date, a)
+    for (const a of activeRevision.assignments) {
+      const list = assignmentsByDate.get(a.date) ?? []
+      list.push(a)
+      assignmentsByDate.set(a.date, list)
+    }
+  }
+
+  function ownerOf(a: Assignment): string {
+    return a.allocatedTo ?? a.personId ?? ''
   }
 
   function getStatus(): 'draft' | 'published' | 'stale' | 'invalid' | 'empty' {
@@ -364,6 +373,14 @@ export function MonthWorkspace() {
     if (date >= roster.historyStartDate && !isMemberOn(person, date)) return
     const base = ensureDraft()
     if (!base) return
+    const onDate = base.assignments.filter(a => a.date === date)
+    if (onDate.some(a => ownerOf(a) === personId)) return
+    const needed = requiredHeadcount(date, roster)
+    let kept = base.assignments
+    if (onDate.length >= needed) {
+      const replace = [...onDate].reverse().find(a => !a.locked && a.source !== 'manual') ?? onDate[onDate.length - 1]
+      kept = base.assignments.filter(a => a !== replace)
+    }
     const newAssignment: Assignment = {
       date,
       allocatedTo: personId,
@@ -373,16 +390,16 @@ export function MonthWorkspace() {
     }
     const updated: PlanRevision = {
       ...base,
-      assignments: [
-        ...base.assignments.filter(a => a.date !== date),
-        newAssignment,
-      ],
+      assignments: [...kept, newAssignment],
     }
     dispatch({ type: 'SAVE_REVISION', payload: updated })
     const assignmentLeaves = deriveAssignmentLeaves(updated.assignments, roster, people)
     const actualLeaves = deriveActualLeaves(actuals, roster, people)
     dispatch({ type: 'SAVE_LEAVES', payload: mergeLeaves(actualLeaves, assignmentLeaves) })
-    recordPastActual(date, personId, base.assignments.find(a => a.date === date))
+    const stillOnDate = updated.assignments.filter(a => a.date === date)
+    if (stillOnDate.length === 1) {
+      recordPastActual(date, personId, onDate.find(a => a !== stillOnDate[0]))
+    }
   }
 
   function recordPastActual(date: string, personId: string | null, previous?: Assignment) {
@@ -481,16 +498,22 @@ export function MonthWorkspace() {
     trackEvent('clear_month', { month, locale })
   }
 
-  function handleUnassign(date: string) {
+  function handleUnassign(date: string, personId?: string) {
     clearPersonHighlight()
     if (!activeRevision) return
     const updated: PlanRevision = {
       ...activeRevision,
       status: 'draft',
-      assignments: activeRevision.assignments.filter(a => a.date !== date),
+      assignments: activeRevision.assignments.filter(a => {
+        if (a.date !== date) return true
+        if (!personId) return false
+        return ownerOf(a) !== personId
+      }),
     }
     dispatch({ type: 'SAVE_REVISION', payload: updated })
-    recordPastActual(date, null)
+    if (!personId || updated.assignments.every(a => a.date !== date)) {
+      recordPastActual(date, null)
+    }
   }
 
   // Build calendar grid (Monday-start)
@@ -515,7 +538,11 @@ export function MonthWorkspace() {
   )
 
   const impossibleDates = dates
-    .filter(date => date >= roster.historyStartDate && !assignmentMap.has(date))
+    .filter(date => {
+      if (date < roster.historyStartDate) return false
+      const filled = new Set((assignmentsByDate.get(date) ?? []).map(ownerOf).filter(Boolean))
+      return filled.size < requiredHeadcount(date, roster)
+    })
     .map(date => ({
       date,
       ...explainDateBlocks(date, people, activeDraftLeaves, activeRevision?.assignments ?? []),
@@ -757,9 +784,10 @@ export function MonthWorkspace() {
                 <div className="grid-body">
                   {cells.map((date, i) => {
                     if (!date) return <div key={i} className="grid-cell empty" />
-                    const assignment = assignmentMap.get(date)
-                    const personId = assignment ? (assignment.allocatedTo ?? assignment.personId) : null
-                    const person = personId ? people.find(p => p.id === personId) : null
+                    const dayAssignments = assignmentsByDate.get(date) ?? []
+                    const dayPeople = dayAssignments
+                      .map(a => people.find(p => p.id === ownerOf(a)))
+                      .filter((p): p is NonNullable<typeof p> => !!p)
                     const holiday = roster ? isHoliday(date, roster, calendarOverrides) : false
                     const src = roster ? holidaySource(date, roster, calendarOverrides) : null
                     const hasConflict = cellWarningDates.has(date) || hardErrorDates.has(date)
@@ -778,7 +806,7 @@ export function MonthWorkspace() {
                     const personRelated = highlightedDates?.has(date) ?? false
                     const personDimmed = !!highlightedDates && !personRelated
                     const noMarks = dayPrefs.filter(p => p.pref === 'AVOID')
-                    const isManual = !!(assignment && (assignment.locked || assignment.source === 'manual'))
+                    const isManual = dayAssignments.some(a => a.locked || a.source === 'manual')
 
                     return (
                       <div
@@ -811,16 +839,16 @@ export function MonthWorkspace() {
                                   : t('month.tagNormal')}
                             </span>
                           )}
-                          {person && personId && (isOnVacation(person, date) || hasRestObligationOn(personId, date, activeDraftLeaves)) && (
-                            <span className="cell-warn" title={isOnVacation(person, date) ? t('month.assignedVacation') : t('month.assignedRest')}><IconWarn /></span>
+                          {dayPeople.some(p => isOnVacation(p, date) || hasRestObligationOn(p.id, date, activeDraftLeaves)) && (
+                            <span className="cell-warn" title={dayPeople.some(p => isOnVacation(p, date)) ? t('month.assignedVacation') : t('month.assignedRest')}><IconWarn /></span>
                           )}
                         </div>
-                        <div className={`cell-person ${isManual ? 'manual' : ''}`} title={person?.name} aria-label={person?.name}>
-                          {person ? (
+                        <div className={`cell-person ${isManual ? 'manual' : ''}`} title={dayPeople.map(p => p.name).join(', ')} aria-label={dayPeople.map(p => p.name).join(', ')}>
+                          {dayPeople.length > 0 ? (
                             <>
-                              <span className="cell-person-name" aria-hidden="true">{person.name}</span>
+                              <span className="cell-person-name" aria-hidden="true">{dayPeople.map(p => p.name).join(' · ')}</span>
                               <span className="cell-person-initials" aria-hidden="true">
-                                {initialsById.get(person.id) ?? person.name}
+                                {dayPeople.map(p => initialsById.get(p.id) ?? p.name).join('·')}
                               </span>
                               {isManual && (
                                 <span className="cell-lock" title={t('month.locked')}><IconLock size={12} /></span>
@@ -850,7 +878,7 @@ export function MonthWorkspace() {
                             icon={<IconVacation size={12} />}
                           />
                         </div>
-                        {actualForDate && actualForDate.actualPersonId !== (assignment?.allocatedTo ?? assignment?.personId) && (
+                        {actualForDate && !dayAssignments.some(a => ownerOf(a) === actualForDate.actualPersonId) && dayAssignments.length > 0 && (
                           <div className="cell-substituted" title={t('month.substituted')}>↔</div>
                         )}
                       </div>
@@ -864,7 +892,7 @@ export function MonthWorkspace() {
               month={month}
               dates={dates}
               people={people}
-              assignmentMap={assignmentMap}
+              assignmentMap={assignmentsByDate}
               leaves={activeDraftLeaves}
               roster={roster}
               overrides={calendarOverrides}
@@ -924,7 +952,7 @@ export function MonthWorkspace() {
               people={peopleByName}
               roster={roster}
               overrides={calendarOverrides}
-              assignment={assignmentMap.get(selectedDate) ?? null}
+              assignments={assignmentsByDate.get(selectedDate) ?? []}
               leaves={activeDraftLeaves}
               draftAssignments={activeRevision?.assignments ?? []}
               fairness={fairness}
@@ -1133,7 +1161,7 @@ function PeopleMatrix({
   month: string
   dates: string[]
   people: any[]
-  assignmentMap: Map<string, Assignment>
+  assignmentMap: Map<string, Assignment[]>
   leaves: any[]
   roster: any
   overrides: CalendarDateOverride[]
@@ -1153,10 +1181,9 @@ function PeopleMatrix({
       </div>
       {people.map(person => {
         const month_ = dates[0]?.slice(0, 7)
-        const shifts = dates.filter(d => {
-          const a = assignmentMap.get(d)
-          return a && (a.allocatedTo ?? a.personId) === person.id
-        }).length
+        const shifts = dates.filter(d =>
+          (assignmentMap.get(d) ?? []).some(a => (a.allocatedTo ?? a.personId) === person.id)
+        ).length
         return (
           <div key={person.id} className="matrix-row">
             <div className="matrix-name-col">
@@ -1167,8 +1194,7 @@ function PeopleMatrix({
               )}
             </div>
             {dates.map(d => {
-              const asgn = assignmentMap.get(d)
-              const assigned = !!asgn && (asgn.allocatedTo ?? asgn.personId) === person.id
+              const assigned = (assignmentMap.get(d) ?? []).some(a => (a.allocatedTo ?? a.personId) === person.id)
               const unavailable = isUnavailableOn(person, d)
               const onRest = leaves.some(l =>
                 l.personId === person.id &&

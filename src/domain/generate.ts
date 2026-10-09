@@ -10,7 +10,10 @@
  *   6. Stable person-id tie-break
  *
  * Manual assignments are never rejected.
- * The generator skips locked assignments and already-confirmed actuals.
+ * A shift needs as many distinct people as its staffing policy (or per-shift
+ * override) requires. One person cannot fill two slots of the same shift.
+ * Locked assignments and confirmed actuals occupy slots; the generator fills
+ * whatever is still open.
  */
 
 import type {
@@ -19,7 +22,7 @@ import type {
   DutyRequirements
 } from './types'
 import {
-  monthDates, isHoliday, monthOf, fairnessWindow, addDays
+  monthDates, isHoliday, monthOf, fairnessWindow, addDays, requiredHeadcount
 } from './calendar'
 import {
   isMemberOn, isUnavailableOn, hasRestObligationOn, countAssignmentsInMonth,
@@ -81,18 +84,6 @@ export function generatePlan(
   const lockedLeaves = deriveAssignmentLeaves(lockedAssignments, roster, people)
   currentLeaves = mergeLeaves(currentLeaves, lockedLeaves)
 
-  // Dates that are covered by confirmed actuals (skip)
-  const actualDates = new Set(
-    existingActuals.filter(a => a.status !== 'cancelled').map(a => a.date)
-  )
-  // Dates that are locked
-  const lockedDates = new Set(lockedAssignments.map(a => a.date))
-
-  // Fill only from history start — earlier days are optional history, not required plan.
-  const openDates = dates.filter(d =>
-    d >= historyStart && !lockedDates.has(d) && !actualDates.has(d)
-  )
-
   // ─── Helper: build a draft revision for fairness computation ───────────────
 
   function makeDraft(): PlanRevision {
@@ -114,8 +105,33 @@ export function generatePlan(
 
   // ─── Feasibility check ────────────────────────────────────────────────────
 
+  function headcount(date: IsoDate): number {
+    return requiredHeadcount(date, roster, dutyRequirements)
+  }
+
+  /** People who already occupy a slot on this shift (plan or confirmed actual). */
+  function coveredIds(date: IsoDate): Set<string> {
+    const ids = new Set<string>()
+    for (const a of assignments) {
+      if (a.date !== date) continue
+      const id = a.allocatedTo ?? a.personId ?? ''
+      if (id) ids.add(id)
+    }
+    for (const actual of existingActuals) {
+      if (actual.date !== date || actual.status === 'cancelled') continue
+      const id = actual.plannedPersonId ?? actual.actualPersonId
+      if (id) ids.add(id)
+    }
+    return ids
+  }
+
+  function openSlots(date: IsoDate): number {
+    return Math.max(0, headcount(date) - coveredIds(date).size)
+  }
+
   function isFeasible(person: Person, date: IsoDate, leaves: LeaveObligation[]): boolean {
     if (!isMemberOn(person, date)) return false
+    if (coveredIds(date).has(person.id)) return false
     if (isUnavailableOn(person, date)) return false
     // Hard no: automatic scheduling must not assign this person.
     // Expected share still accrues (unlike vacation).
@@ -137,6 +153,70 @@ export function generatePlan(
    */
   function feasibleCount(date: IsoDate): number {
     return people.filter(p => isMemberOn(p, date) && isFeasible(p, date, currentLeaves)).length
+  }
+
+  // Shifts that still need people. Locked assignments and actuals already occupy slots.
+  // Days before history start are optional history, not a required plan.
+  const openDates = dates.filter(d => d >= historyStart && openSlots(d) > 0)
+
+  /**
+   * Fill every still-open slot on a shift with a distinct feasible person.
+   * Fairness is recomputed after each slot so the next pick sees the new balance.
+   * `restrictTo` limits the first choice to a holiday-block pool; when that pool
+   * cannot fill a slot, `expand` may add one more candidate.
+   */
+  function fillShift(
+    date: IsoDate,
+    restrictTo: Person[] | null,
+    holidayBlockId: string | undefined,
+    expand?: () => Person | null,
+  ) {
+    const dayType = classifyDay(date, roster, overrides)
+    const needed = headcount(date)
+    while (coveredIds(date).size < needed) {
+      const freshReport = computeFairness(
+        month, people, roster, overrides, existingActuals, makeDraft(),
+        currentLeaves, historyStart, priorAssignments, dutyRequirements,
+      )
+      const source = restrictTo ?? people
+      const feasible = source.filter(p => isFeasible(p, date, currentLeaves))
+      if (feasible.length === 0 && expand) {
+        const extra = expand()
+        if (extra && isFeasible(extra, date, currentLeaves)) feasible.push(extra)
+      }
+      if (feasible.length === 0) {
+        const rescued = tryRescue(
+          date, dayType, people, assignments, currentLeaves, freshReport, roster, people, tolerance,
+        )
+        const rescuedId = rescued ? (rescued.allocatedTo ?? rescued.personId ?? '') : ''
+        if (rescued && rescuedId && !coveredIds(date).has(rescuedId)) {
+          assignments.push(rescued)
+          currentLeaves = mergeLeaves(currentLeaves, deriveAssignmentLeaves([rescued], roster, people))
+          continue
+        }
+        break
+      }
+      const chosen = pickBest(date, dayType, feasible, freshReport, tolerance)
+      const newA = makeAssignment(date, chosen, dayType, holidayBlockId, freshReport, feasible.length)
+      assignments.push(newA)
+      currentLeaves = mergeLeaves(currentLeaves, deriveAssignmentLeaves([newA], roster, people))
+    }
+    if (coveredIds(date).size < needed) {
+      const filled = coveredIds(date).size
+      warnings.push({
+        type: 'NO_COVERAGE',
+        severity: 'warning',
+        date,
+        message: holidayBlockId
+          ? `Shift on ${date} needs ${needed} distinct people; ${filled} assigned (holiday block)`
+          : `Shift on ${date} needs ${needed} distinct people; ${filled} assigned`,
+        data: {
+          ...buildInfeasibleData(date, people, currentLeaves, assignments),
+          required: needed,
+          filled,
+        },
+      })
+    }
   }
 
   // ─── Identify long holiday blocks in THIS month ───────────────────────────
@@ -213,48 +293,26 @@ export function generatePlan(
         return stableIdOrder(a.id, b.id)
       })
 
-    // Grow pool until block can be covered
+    // Grow pool until every open shift in the block has enough distinct people.
     let pool: Person[] = []
     for (const candidate of candidates) {
       pool.push(candidate)
-      // Check if every block date has at least one feasible pool member
-      const canCover = dts.every(d =>
-        pool.some(p => isFeasible(p, d, currentLeaves))
-      )
+      const canCover = dts.every(d => {
+        const need = openSlots(d)
+        if (need === 0) return true
+        return pool.filter(p => isFeasible(p, d, currentLeaves)).length >= need
+      })
       if (canCover) break
     }
 
-    // Schedule duties within the pool using HN/HH bucket fairness
     for (const date of dts) {
-      const dayType = classifyDay(date, roster, overrides)
-      const freshReport = computeFairness(
-        month, people, roster, overrides, existingActuals, makeDraft(),
-        currentLeaves, historyStart, priorAssignments, dutyRequirements,
-      )
-
-      const feasible = pool.filter(p => isFeasible(p, date, currentLeaves))
-      if (feasible.length === 0) {
-        // Expand pool for this date
-        const extra = candidates.filter(c => !pool.includes(c) && isFeasible(c, date, currentLeaves))
-        if (extra.length > 0) feasible.push(extra[0])
-      }
-      if (feasible.length === 0) {
-        warnings.push({
-          type: 'NO_COVERAGE',
-          severity: 'warning',
-          date,
-          message: `No feasible person for ${date} (holiday block)`,
-        })
-        continue
-      }
-
-      const chosen = pickBest(date, dayType, feasible, freshReport, tolerance)
-      const newA = makeAssignment(date, chosen, dayType, block.id, freshReport, feasible.length)
-      assignments.push(newA)
+      fillShift(date, pool, block.id, () => {
+        const extra = candidates.find(c => !pool.includes(c) && isFeasible(c, date, currentLeaves))
+        if (!extra) return null
+        pool.push(extra)
+        return extra
+      })
       blockScheduledDates.add(date)
-
-      const newLeaves = deriveAssignmentLeaves([newA], roster, people)
-      currentLeaves = mergeLeaves(currentLeaves, newLeaves)
     }
   }
 
@@ -262,56 +320,20 @@ export function generatePlan(
 
   const remainingDates = openDates.filter(d => !blockScheduledDates.has(d))
 
-  // Order: most constrained (fewest feasible people) first, stable by date as tie-break
+  // Fewer spare people relative to open slots = more constrained. Stable by date.
   const orderedRemaining = [...remainingDates].sort((a, b) => {
-    const fa = feasibleCount(a)
-    const fb = feasibleCount(b)
-    if (fa !== fb) return fa - fb
+    const slackA = feasibleCount(a) - openSlots(a)
+    const slackB = feasibleCount(b) - openSlots(b)
+    if (slackA !== slackB) return slackA - slackB
     return a.localeCompare(b)
   })
 
   for (const date of orderedRemaining) {
-    const dayType = classifyDay(date, roster, overrides)
-    const freshReport = computeFairness(
-      month, people, roster, overrides, existingActuals, makeDraft(),
-      currentLeaves, historyStart, priorAssignments, dutyRequirements,
-    )
-
-    const feasible = people.filter(p => isFeasible(p, date, currentLeaves))
-
-    if (feasible.length === 0) {
-      warnings.push({
-        type: 'NO_COVERAGE',
-        severity: 'warning',
-        date,
-        message: `No feasible person for ${date}`,
-        data: buildInfeasibleData(date, people, currentLeaves, assignments),
-      })
-      // Try limited repair: pairwise swap
-      const rescued = tryRescue(date, dayType, people, assignments, currentLeaves, freshReport, roster, people, tolerance)
-      if (rescued) {
-        assignments.push(rescued)
-        const newLeaves = deriveAssignmentLeaves([rescued], roster, people)
-        currentLeaves = mergeLeaves(currentLeaves, newLeaves)
-      }
-      continue
-    }
-
-    const chosen = pickBest(date, dayType, feasible, freshReport, tolerance)
-    const newA = makeAssignment(date, chosen, dayType, undefined, freshReport, feasible.length)
-    assignments.push(newA)
-
-    const newLeaves = deriveAssignmentLeaves([newA], roster, people)
-    currentLeaves = mergeLeaves(currentLeaves, newLeaves)
+    fillShift(date, null, undefined)
   }
 
-  const coveredDates = new Set([
-    ...assignments.map(a => a.date),
-    ...existingActuals.filter(a => a.status !== 'cancelled').map(a => a.date),
-  ])
-  const stillEmpty = dates.filter(d => !coveredDates.has(d))
-
-  const outcomeStatus = stillEmpty.length === 0 ? 'feasible-best-found' : 'proven-infeasible'
+  const stillShort = dates.filter(d => d >= historyStart && coveredIds(d).size < headcount(d))
+  const outcomeStatus = stillShort.length === 0 ? 'feasible-best-found' : 'proven-infeasible'
 
   return { assignments, leaves: currentLeaves, outcomeStatus, warnings }
 }
@@ -425,10 +447,20 @@ function tryRescue(
     )
     if (!causingAssignment || causingAssignment.locked || causingAssignment.source === 'manual') continue
 
+    const onShift = (day: IsoDate) => new Set(
+      assignments
+        .filter(a => a.date === day)
+        .map(a => a.allocatedTo ?? a.personId ?? '')
+        .filter(Boolean)
+    )
+    if (onShift(date).has(person.id)) continue
+
     // Can we swap: is there another person who is feasible on the causing date AND not blocked on this date?
     const idx = assignments.indexOf(causingAssignment)
     const altPeople = allPeople.filter(p =>
       p.id !== person.id &&
+      !onShift(causingAssignment.date).has(p.id) &&
+      !onShift(date).has(p.id) &&
       !hasRestObligationOn(p.id, causingAssignment.date, leaves) &&
       !isUnavailableOn(p, causingAssignment.date) &&
       isMemberOn(p, causingAssignment.date) &&
