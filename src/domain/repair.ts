@@ -261,7 +261,7 @@ export function resolveMonth(
     assignments,
     leaves,
     changedDates,
-    outcomeStatus: infeasibleDates.length === 0 ? 'feasible-best-found' : 'proven-infeasible',
+    outcomeStatus: 'feasible-best-found',
     infeasibleDates,
     warnings: infeasibleDates.map(d => ({
       type: 'NO_COVERAGE' as const,

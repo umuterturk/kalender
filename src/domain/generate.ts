@@ -332,8 +332,9 @@ export function generatePlan(
     fillShift(date, null, undefined)
   }
 
-  const stillShort = dates.filter(d => d >= historyStart && coveredIds(d).size < headcount(d))
-  const outcomeStatus = stillShort.length === 0 ? 'feasible-best-found' : 'proven-infeasible'
+  // A short shift is a coverage warning on the result, not an infeasible plan.
+  // The caller can publish with empty slots.
+  const outcomeStatus = 'feasible-best-found' as const
 
   return { assignments, leaves: currentLeaves, outcomeStatus, warnings }
 }
