@@ -8,6 +8,17 @@
   min-height: 0;
 }
 
+.day-date-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.day-fill {
+  flex-shrink: 0;
+}
+
 .day-date {
   font-family: var(--font-display);
   font-size: var(--text-md);

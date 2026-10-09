@@ -65,6 +65,11 @@ export function generatePlan(
   _seed: string, // retained for API compat; determinism comes from stable id sort now
   priorAssignments: Assignment[] = [],
   dutyRequirements: DutyRequirements = {},
+  /**
+   * When set, only this date may gain people. Every other assignment is left
+   * exactly as it was passed in, including unlocked ones.
+   */
+  onlyDate?: IsoDate,
 ): GenerateResult {
   const tolerance = roster.fairnessTolerance ?? 0.25
   const rareN = roster.rareEventOccurrences ?? 3
@@ -157,7 +162,10 @@ export function generatePlan(
 
   // Shifts that still need people. Locked assignments and actuals already occupy slots.
   // Days before history start are optional history, not a required plan.
-  const openDates = dates.filter(d => d >= historyStart && openSlots(d) > 0)
+  const openDates = dates.filter(d =>
+    d >= historyStart && openSlots(d) > 0 && (!onlyDate || d === onlyDate)
+  )
+  const preserveOthers = onlyDate !== undefined
 
   /**
    * Fill every still-open slot on a shift with a distinct feasible person.
@@ -170,6 +178,7 @@ export function generatePlan(
     restrictTo: Person[] | null,
     holidayBlockId: string | undefined,
     expand?: () => Person | null,
+    preserveOthers = false,
   ) {
     const dayType = classifyDay(date, roster, overrides)
     const needed = headcount(date)
@@ -185,14 +194,17 @@ export function generatePlan(
         if (extra && isFeasible(extra, date, currentLeaves)) feasible.push(extra)
       }
       if (feasible.length === 0) {
-        const rescued = tryRescue(
-          date, dayType, people, assignments, currentLeaves, freshReport, roster, people, tolerance,
-        )
-        const rescuedId = rescued ? (rescued.allocatedTo ?? rescued.personId ?? '') : ''
-        if (rescued && rescuedId && !coveredIds(date).has(rescuedId)) {
-          assignments.push(rescued)
-          currentLeaves = mergeLeaves(currentLeaves, deriveAssignmentLeaves([rescued], roster, people))
-          continue
+        // A one-day fill must not move anyone already placed on another day.
+        if (!preserveOthers) {
+          const rescued = tryRescue(
+            date, dayType, people, assignments, currentLeaves, freshReport, roster, people, tolerance,
+          )
+          const rescuedId = rescued ? (rescued.allocatedTo ?? rescued.personId ?? '') : ''
+          if (rescued && rescuedId && !coveredIds(date).has(rescuedId)) {
+            assignments.push(rescued)
+            currentLeaves = mergeLeaves(currentLeaves, deriveAssignmentLeaves([rescued], roster, people))
+            continue
+          }
         }
         break
       }
@@ -311,7 +323,7 @@ export function generatePlan(
         if (!extra) return null
         pool.push(extra)
         return extra
-      })
+      }, preserveOthers)
       blockScheduledDates.add(date)
     }
   }
@@ -329,7 +341,7 @@ export function generatePlan(
   })
 
   for (const date of orderedRemaining) {
-    fillShift(date, null, undefined)
+    fillShift(date, null, undefined, undefined, preserveOthers)
   }
 
   // A short shift is a coverage warning on the result, not an infeasible plan.
@@ -337,6 +349,41 @@ export function generatePlan(
   const outcomeStatus = 'feasible-best-found' as const
 
   return { assignments, leaves: currentLeaves, outcomeStatus, warnings }
+}
+
+/**
+ * Fill the open slots of one day.
+ * People already assigned that day stay. No other day is added to or changed.
+ * The same feasibility rules as a full plan apply: rest, vacation, avoid,
+ * qualification, monthly maximum, fairness, and one slot per person.
+ * If there are not enough eligible people, the day is filled as far as it can
+ * be and the result carries a coverage warning.
+ */
+export function fillDay(
+  date: IsoDate,
+  month: string,
+  people: Person[],
+  roster: Roster,
+  overrides: CalendarDateOverride[],
+  existingActuals: ActualShift[],
+  existingAssignments: Assignment[],
+  previousRevisionLeaves: LeaveObligation[],
+  priorAssignments: Assignment[] = [],
+  dutyRequirements: DutyRequirements = {},
+): GenerateResult {
+  return generatePlan(
+    month,
+    people,
+    roster,
+    overrides,
+    existingActuals,
+    existingAssignments,
+    previousRevisionLeaves,
+    'fill-day',
+    priorAssignments,
+    dutyRequirements,
+    date,
+  )
 }
 
 // ─── Candidate selection ─────────────────────────────────────────────────────

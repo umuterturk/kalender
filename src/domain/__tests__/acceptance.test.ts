@@ -10,7 +10,7 @@ import type {
 import { monthDates } from '../calendar'
 import { classifyDay, computeFairness, type FairnessReport } from '../fairness'
 import { toggleShiftAssignment } from '../assign'
-import { generatePlan, type GenerateResult } from '../generate'
+import { fillDay, generatePlan, type GenerateResult } from '../generate'
 import { shouldOfferAutomaticRepair, updateRestPolicy, updateStaffingPolicy } from '../policies'
 import { repairPlan } from '../repair'
 import { assessAssignment, validateRevision } from '../validate'
@@ -206,6 +206,32 @@ function autoSchedule(
     options.keep ?? [],
     [],
     'acceptance',
+    options.earlierDuties ?? [],
+    options.duties ?? {},
+  )
+}
+
+function fillOneDay(
+  date: string,
+  people: Person[],
+  options: {
+    calendar?: CalendarDateOverride[]
+    earlierDuties?: Assignment[]
+    keep?: Assignment[]
+    rules?: Roster
+    actuals?: ActualShift[]
+    duties?: DutyRequirements
+  } = {},
+): GenerateResult {
+  return fillDay(
+    date,
+    date.slice(0, 7),
+    people,
+    options.rules ?? roster(),
+    options.calendar ?? [],
+    options.actuals ?? [],
+    options.keep ?? [],
+    [],
     options.earlierDuties ?? [],
     options.duties ?? {},
   )
@@ -1336,5 +1362,102 @@ describe('Dated policies can be edited after they are created', () => {
 
     expect(whoAllWork(result, '2026-10-05')).toEqual(['Ali', 'Ayşe'])
     expect(whoAllWork(result, '2026-10-06')).toEqual(['Can', 'Deniz'])
+  })
+})
+
+describe('Fill one short day', () => {
+  it('fills only that day and keeps people already assigned, including on other days', () => {
+    const people = [person('Ali'), person('Ayşe'), person('Can')]
+    const rules = withStaffing(2)
+    const existing = [
+      duty('2026-10-01', 'Can', 'manual'),
+      duty('2026-10-05', 'Ali', 'manual'),
+      duty('2026-10-08', 'Ayşe', 'auto'),
+    ]
+    const result = fillOneDay('2026-10-05', people, { rules, keep: existing })
+
+    const names = whoAllWork(result, '2026-10-05')
+    expect(names).toContain('Ali')
+    expect(names).toHaveLength(2)
+    expect(new Set(names).size).toBe(2)
+    expect(result.assignments.filter(item => item.date !== '2026-10-05')).toEqual(
+      existing.filter(item => item.date !== '2026-10-05'),
+    )
+    for (const date of monthDates('2026-10')) {
+      if (date === '2026-10-01' || date === '2026-10-05' || date === '2026-10-08') continue
+      expect(whoAllWork(result, date)).toEqual([])
+    }
+  })
+
+  it('respects rest, vacation, avoid, qualification, monthly max, and fairness', () => {
+    const resting = fillOneDay('2026-10-06', [person('Ali'), person('Ayşe'), person('Can'), person('Deniz')], {
+      rules: withNextDayOff(withStaffing(2)),
+      keep: [
+        duty('2026-10-05', 'Ali', 'manual'),
+        duty('2026-10-05', 'Ayşe', 'manual'),
+        duty('2026-10-04', 'Can', 'auto'),
+      ],
+    })
+    expect(whoAllWork(resting, '2026-10-05')).toEqual(['Ali', 'Ayşe'])
+    expect(whoAllWork(resting, '2026-10-04')).toEqual(['Can'])
+    expect(whoAllWork(resting, '2026-10-06')).toEqual(['Can', 'Deniz'])
+
+    const onLeave = person('Ali', { vacation: [{ from: '2026-10-05', to: '2026-10-05' }] })
+    expect(whoAllWork(fillOneDay('2026-10-05', [onLeave, person('Ayşe')], { rules: withStaffing(1) }), '2026-10-05')).toEqual(['Ayşe'])
+
+    const avoiding = person('Ali', { avoid: ['2026-10-05'] })
+    expect(whoAllWork(fillOneDay('2026-10-05', [avoiding, person('Ayşe')], { rules: withStaffing(1) }), '2026-10-05')).toEqual(['Ayşe'])
+
+    const nurse = person('Ali', { qualifications: ['icu'] })
+    const clerk = person('Ayşe')
+    expect(whoAllWork(fillOneDay('2026-10-05', [nurse, clerk], {
+      rules: withStaffing(1),
+      duties: { '2026-10-05': { requiredQualification: 'icu' } },
+    }), '2026-10-05')).toEqual(['Ali'])
+
+    const capped = person('Ali', { maxShifts: 1 })
+    const cappedResult = fillOneDay('2026-10-05', [capped, person('Ayşe')], {
+      rules: withStaffing(1),
+      keep: [duty('2026-10-01', 'Ali', 'manual')],
+    })
+    expect(whoAllWork(cappedResult, '2026-10-05')).toEqual(['Ayşe'])
+    expect(whoAllWork(cappedResult, '2026-10-01')).toEqual(['Ali'])
+
+    const behind = fillOneDay('2026-10-05', [person('Ali'), person('Ayşe'), person('Can')], {
+      rules: withStaffing(1),
+      earlierDuties: manyDuties('Ali', '2026-09-01', 12),
+    })
+    expect(whoAllWork(behind, '2026-10-05')).not.toContain('Ali')
+    expect(whoAllWork(behind, '2026-10-05')).toHaveLength(1)
+  })
+
+  it('fills what it can and keeps a coverage warning when not enough people are free', () => {
+    const people = [person('Ali'), person('Ayşe')]
+    const rules = withStaffing(3)
+    const existing = [duty('2026-10-01', 'Ali', 'manual')]
+    const result = fillOneDay('2026-10-05', people, { rules, keep: existing })
+    const checked = review('2026-10', people, result.assignments, rules)
+
+    expect(whoAllWork(result, '2026-10-05')).toEqual(['Ali', 'Ayşe'])
+    expect(whoAllWork(result, '2026-10-01')).toEqual(['Ali'])
+    expect(result.outcomeStatus).toBe('feasible-best-found')
+    expect(result.warnings.some(warning =>
+      warning.type === 'NO_COVERAGE' && warning.date === '2026-10-05' && warning.data?.filled === 2 && warning.data?.required === 3
+    )).toBe(true)
+    expect(checked.publishable).toBe(true)
+    expect(checked.hardErrors).toEqual([])
+  })
+
+  it('does not add anyone to a day that is already fully staffed', () => {
+    const people = [person('Ali'), person('Ayşe'), person('Can')]
+    const existing = [
+      duty('2026-10-05', 'Ali', 'manual'),
+      duty('2026-10-05', 'Ayşe', 'manual'),
+    ]
+    const result = fillOneDay('2026-10-05', people, { rules: withStaffing(2), keep: existing })
+
+    expect(whoAllWork(result, '2026-10-05')).toEqual(['Ali', 'Ayşe'])
+    expect(result.assignments).toEqual(existing)
+    expect(result.warnings.some(warning => warning.type === 'NO_COVERAGE')).toBe(false)
   })
 })
