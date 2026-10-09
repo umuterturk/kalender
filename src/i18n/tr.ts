@@ -95,6 +95,8 @@ export const tr: Messages = {
     confirmRepairTitle: 'Otomatik yeniden atasın mı?',
     confirmRepairLead: 'Bazı atamalar bir kurala takılıyor. Kalender o günleri yeniden doldurabilir. Onaylamadan hiçbir şey değişmez.',
     confirmRepairAction: 'Yeniden ata',
+    fillDay: 'Bu günü doldur',
+    fillDayTitle: 'Yalnızca bu günün boş yerlerini doldurur. Ayın geri kalanı olduğu gibi kalır.',
     publish: 'Yayınla',
     publishNoDraft: 'Yayınlanacak taslak yok',
     publishTitle: 'Bu planı yayınla (uyarılar engellemez)',

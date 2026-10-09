@@ -93,6 +93,8 @@ export const en = {
     confirmRepairTitle: 'Reassign automatically?',
     confirmRepairLead: 'Some assignments break a rule. Kalender can fill those days again. Nothing changes until you confirm.',
     confirmRepairAction: 'Reassign',
+    fillDay: 'Fill this day',
+    fillDayTitle: 'Fill the open slots on this day only. The rest of the month stays as it is.',
     publish: 'Publish',
     publishNoDraft: 'No draft to publish',
     publishTitle: 'Publish this plan (warnings will not block publish)',

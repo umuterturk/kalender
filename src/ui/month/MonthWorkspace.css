@@ -656,6 +656,33 @@
   color: var(--warn);
 }
 
+.cell-fill {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+
+.cell-fill:hover,
+.cell-fill:focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.grid-cell.has-fill .cell-top {
+  padding-right: 18px;
+}
+
 .cell-person {
   display: flex;
   align-items: center;
@@ -1052,6 +1079,13 @@
   .cell-rest,
   .cell-warn {
     display: none;
+  }
+
+  .cell-fill {
+    top: 3px;
+    right: 3px;
+    width: 20px;
+    height: 20px;
   }
 
   .cell-top .cell-lock {

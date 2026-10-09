@@ -11,7 +11,7 @@ import { isMemberOn, isOnVacation, isUnavailableOn, hasRestObligationOn, withVac
 import { deriveAssignmentLeaves, deriveActualLeaves, mergeLeaves, previousMonthRestLeaves } from '../../domain/leave'
 import { computeFairness } from '../../domain/fairness'
 import { validateRevision } from '../../domain/validate'
-import { generatePlan } from '../../domain/generate'
+import { fillDay, generatePlan } from '../../domain/generate'
 import { resolveMonth } from '../../domain/repair'
 import { toggleShiftAssignment } from '../../domain/assign'
 import { shouldOfferAutomaticRepair } from '../../domain/policies'
@@ -264,6 +264,21 @@ export function MonthWorkspace() {
     return a.allocatedTo ?? a.personId ?? ''
   }
 
+  function dateIsShort(date: string): boolean {
+    if (!roster || date < roster.historyStartDate) return false
+    const ids = new Set<string>()
+    for (const assignment of assignmentsByDate.get(date) ?? []) {
+      const id = ownerOf(assignment)
+      if (id) ids.add(id)
+    }
+    for (const actual of actuals) {
+      if (actual.date !== date || actual.status === 'cancelled') continue
+      const id = actual.plannedPersonId ?? actual.actualPersonId
+      if (id) ids.add(id)
+    }
+    return ids.size < requiredHeadcount(date, roster)
+  }
+
   function getStatus(): 'draft' | 'published' | 'stale' | 'invalid' | 'empty' {
     if (!activeRevision || activeRevision.assignments.length === 0) return 'empty'
     // Only hard structural errors (duplicate date, non-member) mark as invalid
@@ -325,6 +340,31 @@ export function MonthWorkspace() {
       locale,
       workable: hasCoverage ? 'yes' : 'no',
     })
+  }
+
+  function handleFillDay(date: string) {
+    clearPersonHighlight()
+    if (!roster || date < roster.historyStartDate) return
+    const base = ensureDraft()
+    if (!base) return
+    const result = fillDay(
+      date,
+      month,
+      people,
+      roster,
+      calendarOverrides,
+      actuals,
+      base.assignments,
+      boundaryLeaves,
+      priorAssignments,
+    )
+    const updated: PlanRevision = {
+      ...base,
+      assignments: result.assignments,
+      outcomeStatus: result.outcomeStatus,
+    }
+    dispatch({ type: 'SAVE_REVISION', payload: updated })
+    dispatch({ type: 'SAVE_LEAVES', payload: result.leaves })
   }
 
   function handlePublish() {
@@ -827,6 +867,8 @@ export function MonthWorkspace() {
                     const noMarks = dayPrefs.filter(p => p.pref === 'AVOID')
                     const isManual = dayAssignments.some(a => a.locked || a.source === 'manual')
 
+                    const short = dateIsShort(date)
+
                     return (
                       <div
                         key={date}
@@ -839,9 +881,24 @@ export function MonthWorkspace() {
                           isToday ? 'today' : '',
                           personRelated ? 'person-related' : '',
                           personDimmed ? 'person-dimmed' : '',
+                          short ? 'has-fill' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => handleDateClick(date)}
                       >
+                        {short && (
+                          <button
+                            type="button"
+                            className="cell-fill"
+                            title={t('month.fillDayTitle')}
+                            aria-label={t('month.fillDayTitle')}
+                            onClick={event => {
+                              event.stopPropagation()
+                              handleFillDay(date)
+                            }}
+                          >
+                            <IconWand size={14} />
+                          </button>
+                        )}
                         <div className="cell-top">
                           <span className="cell-date-num">{parseInt(date.slice(8))}</span>
                           {src && (
@@ -978,6 +1035,7 @@ export function MonthWorkspace() {
               conflictNotes={selectedDayConflictNotes}
               onAssign={handleAssign}
               onUnassign={handleUnassign}
+              onFillDay={dateIsShort(selectedDate) ? handleFillDay : undefined}
               onProhibit={handleProhibit}
               onAvoid={handleAvoid}
               onSetOfficialHoliday={handleSetOfficialHoliday}

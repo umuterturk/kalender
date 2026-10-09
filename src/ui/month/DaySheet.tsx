@@ -14,7 +14,7 @@ import {
 import type { MessageKey } from '../../i18n'
 import { useI18n } from '../../i18n'
 import { formatDayType } from '../../i18n/dayType'
-import { IconWarn } from '../icons'
+import { IconWand, IconWarn } from '../icons'
 import './DaySheet.css'
 
 interface Props {
@@ -32,6 +32,7 @@ interface Props {
   onAvoid: (date: string, personId: string, avoided: boolean) => void
   onSetPreference?: (date: string, personId: string, pref: PreferenceType | null) => void
   onSetOfficialHoliday?: (date: string, holiday: boolean) => void
+  onFillDay?: (date: string) => void
   conflictNotes?: { key: string; text: string }[]
 }
 
@@ -129,7 +130,7 @@ function reasonsForPending(
 
 export function DaySheet({
   date, people, roster, overrides, assignments, leaves, draftAssignments, fairness,
-  onAssign, onUnassign, onProhibit, onAvoid, onSetPreference, onSetOfficialHoliday,
+  onAssign, onUnassign, onProhibit, onAvoid, onSetPreference, onSetOfficialHoliday, onFillDay,
   conflictNotes = [],
 }: Props) {
   const { t, localeTag } = useI18n()
@@ -217,7 +218,20 @@ export function DaySheet({
   return (
     <div className="day-sheet">
       <div className="day-sheet-header">
-        <div className="day-date">{formatDateLong(date, localeTag)}</div>
+        <div className="day-date-row">
+          <div className="day-date">{formatDateLong(date, localeTag)}</div>
+          {onFillDay && (
+            <button
+              type="button"
+              className="btn btn-secondary day-fill"
+              title={t('month.fillDayTitle')}
+              aria-label={t('month.fillDayTitle')}
+              onClick={() => onFillDay(date)}
+            >
+              <IconWand size={16} /> {t('month.fillDay')}
+            </button>
+          )}
+        </div>
         {conflictNotes.length > 0 && (
           <div className="day-conflict-notes" role="status">
             {conflictNotes.map(note => (
