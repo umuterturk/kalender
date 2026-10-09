@@ -13,6 +13,7 @@ import { loadState, saveState, migrateState } from './db'
 import { registerLiveState } from '../debug/consoleApi'
 import { nanoid } from '../lib/nanoid'
 import { dateInPeriods, seedHolidayState, syncHolidayOverrides } from '../domain/holidays'
+import { updateRestPolicy, updateStaffingPolicy } from '../domain/policies'
 
 // ─── Initial state ─────────────────────────────────────────────────────────
 
@@ -39,7 +40,9 @@ export type Action =
   | { type: 'UPSERT_HOLIDAY_PERIOD'; payload: HolidayPeriod }
   | { type: 'REMOVE_HOLIDAY_PERIOD'; payload: string /* id */ }
   | { type: 'ADD_REST_POLICY'; payload: RestPolicy }
+  | { type: 'UPDATE_REST_POLICY'; payload: RestPolicy }
   | { type: 'ADD_STAFFING_POLICY'; payload: StaffingPolicy }
+  | { type: 'UPDATE_STAFFING_POLICY'; payload: StaffingPolicy }
   | { type: 'SAVE_REVISION'; payload: PlanRevision }
   | { type: 'PUBLISH_REVISION'; payload: { revisionId: string; publishedAt: string } }
   | { type: 'MARK_STALE'; payload: { revisionId: string } }
@@ -155,6 +158,16 @@ function reducer(state: KalenderState, action: Action): KalenderState {
         }
       }
 
+    case 'UPDATE_REST_POLICY':
+      if (!state.roster) return state
+      return {
+        ...state,
+        roster: {
+          ...state.roster,
+          restPolicies: updateRestPolicy(state.roster.restPolicies, action.payload),
+        }
+      }
+
     case 'ADD_STAFFING_POLICY':
       if (!state.roster) return state
       return {
@@ -162,6 +175,16 @@ function reducer(state: KalenderState, action: Action): KalenderState {
         roster: {
           ...state.roster,
           staffingPolicies: [...(state.roster.staffingPolicies ?? []), action.payload],
+        }
+      }
+
+    case 'UPDATE_STAFFING_POLICY':
+      if (!state.roster) return state
+      return {
+        ...state,
+        roster: {
+          ...state.roster,
+          staffingPolicies: updateStaffingPolicy(state.roster.staffingPolicies ?? [], action.payload),
         }
       }
 

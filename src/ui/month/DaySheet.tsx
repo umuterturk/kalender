@@ -309,8 +309,6 @@ export function DaySheet({
         )}
         {people.map(person => {
           const assigned = assignedIds.has(person.id)
-          const mine = dayAssignments.find(a => ownerId(a) === person.id)
-          const pinned = assigned && !!mine && (mine.locked || mine.source === 'manual')
           const vacation = isOnVacation(person, date)
           const pref = getPreference(person, date)
           const member = isMemberOn(person, date) || date < roster.historyStartDate
@@ -346,27 +344,32 @@ export function DaySheet({
                 )}
               </div>
               <div className="person-day-actions">
-                {pinned ? (
-                  <span className="set-badge">{t('day.set')}</span>
-                ) : (
-                  <button
-                    className="btn btn-secondary text-sm"
-                    disabled={!member}
-                    title={!member ? t('day.cannotAssign') : vacation ? t('day.setDespiteVacation') : onRest ? t('day.setDespiteRest') : undefined}
-                    onClick={() => {
-                      const reasons = setWarningKeys(
-                        person, date, assigned, vacation, onRest, pref, draftAssignments, isPast,
-                      )
+                <button
+                  className={`btn text-sm ${assigned ? 'btn-primary' : 'btn-secondary'}`}
+                  aria-pressed={assigned}
+                  disabled={!member && !assigned}
+                  title={!member && !assigned ? t('day.cannotAssign') : assigned ? t('day.set') : vacation ? t('day.setDespiteVacation') : onRest ? t('day.setDespiteRest') : undefined}
+                  onClick={() => {
+                    if (assigned) {
                       requestOrRun(
-                        { kind: 'set', personId: person.id },
-                        () => onAssign(date, person.id),
-                        reasons.length > 0,
+                        { kind: 'clear', personId: person.id },
+                        () => onUnassign(date, person.id),
+                        isPast,
                       )
-                    }}
-                  >
-                    {t('day.set')}
-                  </button>
-                )}
+                      return
+                    }
+                    const reasons = setWarningKeys(
+                      person, date, assigned, vacation, onRest, pref, draftAssignments, isPast,
+                    )
+                    requestOrRun(
+                      { kind: 'set', personId: person.id },
+                      () => onAssign(date, person.id),
+                      reasons.length > 0,
+                    )
+                  }}
+                >
+                  {t('day.set')}
+                </button>
                 {onSetPreference ? (
                   <select
                     className="select text-sm"

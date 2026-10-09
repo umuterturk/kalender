@@ -13,6 +13,8 @@ import { computeFairness } from '../../domain/fairness'
 import { validateRevision } from '../../domain/validate'
 import { generatePlan } from '../../domain/generate'
 import { resolveMonth } from '../../domain/repair'
+import { toggleShiftAssignment } from '../../domain/assign'
+import { shouldOfferAutomaticRepair } from '../../domain/policies'
 import type { PlanRevision, Assignment, CalendarDateOverride, PreferenceType, ActualShift, FairnessProjection } from '../../domain/types'
 import { nanoid } from '../../lib/nanoid'
 import { uniqueInitials } from '../../lib/initials'
@@ -71,8 +73,11 @@ export function MonthWorkspace() {
   const [clearMonthOpen, setClearMonthOpen] = useState(false)
   const [clearAlsoPrefs, setClearAlsoPrefs] = useState(false)
   const [resolvedNote, setResolvedNote] = useState<string | null>(null)
+  const [planConfirmOpen, setPlanConfirmOpen] = useState(false)
+  const [repairConfirmOpen, setRepairConfirmOpen] = useState(false)
   const resolvedSignatures = useRef(new Set<string>())
   const autoResolveAttempts = useRef(0)
+  const dismissedRepairSig = useRef<string | null>(null)
 
   // Get or create a draft revision for this month
   const monthRevisions = revisions.filter(r => r.month === month)
@@ -173,17 +178,33 @@ export function MonthWorkspace() {
     setHighlightedPersonId(null)
   }
 
+  const repairSig = useMemo(() => {
+    if (!validation || !shouldOfferAutomaticRepair(validation.warnings, validation.hardErrors)) return null
+    const bits = [
+      ...validation.warnings
+        .filter(w => w.type === 'UNAVAILABLE' || w.type === 'NEXT_DAY_OFF' || w.type === 'AVOID_PREFERENCE')
+        .map(w => `${w.type}:${w.date}:${w.personId ?? ''}`),
+      ...validation.hardErrors
+        .filter(e => e.kind === 'not-member')
+        .map(e => `${e.kind}:${e.date}:${e.personId ?? ''}`),
+    ]
+    return bits.sort().join('|')
+  }, [validation])
+
   useEffect(() => {
-    if (!roster || !activeRevision || !validation) return
-    if (autoResolveAttempts.current >= 2) return
-    const fixable = validation.warnings.some(w =>
-      w.type === 'UNAVAILABLE' || w.type === 'NEXT_DAY_OFF' || w.type === 'AVOID_PREFERENCE'
-    ) || validation.hardErrors.some(e => e.kind === 'not-member')
-    if (!fixable) {
-      resolvedSignatures.current.clear()
+    if (!repairSig || !roster || !activeRevision) {
+      setRepairConfirmOpen(false)
       return
     }
+    if (autoResolveAttempts.current >= 2) return
+    if (dismissedRepairSig.current === repairSig) return
+    setRepairConfirmOpen(true)
+  }, [repairSig, roster, activeRevision])
 
+  function confirmAutomaticRepair() {
+    setRepairConfirmOpen(false)
+    if (!roster || !activeRevision || !validation) return
+    if (autoResolveAttempts.current >= 2) return
     const result = resolveMonth(
       activeRevision, people, roster, calendarOverrides, actuals, boundaryLeaves, priorAssignments,
     )
@@ -193,17 +214,18 @@ export function MonthWorkspace() {
     resolvedSignatures.current.add(before)
     resolvedSignatures.current.add(after)
     autoResolveAttempts.current += 1
+    dismissedRepairSig.current = null
 
     const updated: PlanRevision = {
       ...activeRevision,
       id: activeRevision.status === 'published' ? nanoid() : activeRevision.id,
-      status: result.outcomeStatus === 'proven-infeasible' ? 'invalid' : 'draft',
+      status: 'draft',
       baselineRevisionId: activeRevision.status === 'published'
         ? activeRevision.id
         : activeRevision.baselineRevisionId,
       assignments: result.assignments,
       optimizationMode: 'repair',
-      outcomeStatus: result.outcomeStatus,
+      outcomeStatus: 'manual',
       publishedAt: undefined,
     }
     dispatch({ type: 'SAVE_REVISION', payload: updated })
@@ -214,7 +236,12 @@ export function MonthWorkspace() {
         ? null
         : tp('month.reassigned', 'month.reassigned_plural', moved)
     )
-  }, [activeRevision, actuals, boundaryLeaves, calendarOverrides, dispatch, month, people, priorAssignments, roster, tp, validation])
+  }
+
+  function dismissAutomaticRepair() {
+    dismissedRepairSig.current = repairSig
+    setRepairConfirmOpen(false)
+  }
 
   if (!roster) {
     return (
@@ -280,7 +307,7 @@ export function MonthWorkspace() {
     const rev: PlanRevision = {
       id: nanoid(),
       month,
-      status: hasCoverage ? 'draft' : 'invalid',
+      status: 'draft',
       baselineRevisionId: publishedRevision?.id ?? null,
       assignments: result.assignments,
       calendarOverrideSnapshot: calendarOverrides.filter(o => o.date >= monthStart(month) && o.date <= monthEnd(month)),
@@ -373,32 +400,24 @@ export function MonthWorkspace() {
     if (date >= roster.historyStartDate && !isMemberOn(person, date)) return
     const base = ensureDraft()
     if (!base) return
-    const onDate = base.assignments.filter(a => a.date === date)
-    if (onDate.some(a => ownerOf(a) === personId)) return
     const needed = requiredHeadcount(date, roster)
-    let kept = base.assignments
-    if (onDate.length >= needed) {
-      const replace = [...onDate].reverse().find(a => !a.locked && a.source !== 'manual') ?? onDate[onDate.length - 1]
-      kept = base.assignments.filter(a => a !== replace)
-    }
-    const newAssignment: Assignment = {
-      date,
-      allocatedTo: personId,
-      performedBy: personId,
-      locked: true,
-      source: 'manual',
-    }
+    const wasAssigned = base.assignments.some(a => a.date === date && ownerOf(a) === personId)
+    const nextAssignments = toggleShiftAssignment(base.assignments, date, personId, needed)
     const updated: PlanRevision = {
       ...base,
-      assignments: [...kept, newAssignment],
+      assignments: nextAssignments,
     }
     dispatch({ type: 'SAVE_REVISION', payload: updated })
     const assignmentLeaves = deriveAssignmentLeaves(updated.assignments, roster, people)
     const actualLeaves = deriveActualLeaves(actuals, roster, people)
     dispatch({ type: 'SAVE_LEAVES', payload: mergeLeaves(actualLeaves, assignmentLeaves) })
-    const stillOnDate = updated.assignments.filter(a => a.date === date)
+    const stillOnDate = nextAssignments.filter(a => a.date === date)
+    if (wasAssigned) {
+      if (stillOnDate.length === 0) recordPastActual(date, null)
+      return
+    }
     if (stillOnDate.length === 1) {
-      recordPastActual(date, personId, onDate.find(a => a !== stillOnDate[0]))
+      recordPastActual(date, personId, base.assignments.find(a => a.date === date))
     }
   }
 
@@ -632,7 +651,7 @@ export function MonthWorkspace() {
       </button>
       <button
         className="btn btn-secondary"
-        onClick={handleGenerate}
+        onClick={() => setPlanConfirmOpen(true)}
         title={t('month.newPlanTitle')}
       >
         <IconWand size={16} /> {t('month.newPlan')}
@@ -694,7 +713,7 @@ export function MonthWorkspace() {
           <div className="actions-drawer-label">{t('month.actions')}</div>
           <button
             className="btn btn-secondary"
-            onClick={() => { handleGenerate(); closeDrawer() }}
+            onClick={() => { setPlanConfirmOpen(true); closeDrawer() }}
           >
             <IconWand size={16} /> {t('month.newPlan')}
           </button>
@@ -1018,6 +1037,46 @@ export function MonthWorkspace() {
           onConfirmPublish={confirmPublish}
           onClose={() => setShowReview(false)}
         />
+      )}
+
+      {planConfirmOpen && (
+        <div className="confirm-overlay" onClick={() => setPlanConfirmOpen(false)}>
+          <div
+            className="confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="plan-confirm-title"
+            aria-describedby="plan-confirm-lead"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 id="plan-confirm-title" className="confirm-dialog-title">{t('month.confirmPlanTitle')}</h3>
+            <p id="plan-confirm-lead" className="confirm-dialog-lead">{t('month.confirmPlanLead')}</p>
+            <div className="confirm-dialog-actions">
+              <button className="btn btn-secondary" onClick={() => setPlanConfirmOpen(false)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={() => { setPlanConfirmOpen(false); handleGenerate() }}>{t('month.confirmPlanAction')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {repairConfirmOpen && (
+        <div className="confirm-overlay" onClick={dismissAutomaticRepair}>
+          <div
+            className="confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="repair-confirm-title"
+            aria-describedby="repair-confirm-lead"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 id="repair-confirm-title" className="confirm-dialog-title">{t('month.confirmRepairTitle')}</h3>
+            <p id="repair-confirm-lead" className="confirm-dialog-lead">{t('month.confirmRepairLead')}</p>
+            <div className="confirm-dialog-actions">
+              <button className="btn btn-secondary" onClick={dismissAutomaticRepair}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={confirmAutomaticRepair}>{t('month.confirmRepairAction')}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {clearMonthOpen && (

@@ -9,7 +9,9 @@ import type {
 } from '../types'
 import { monthDates } from '../calendar'
 import { classifyDay, computeFairness, type FairnessReport } from '../fairness'
+import { toggleShiftAssignment } from '../assign'
 import { generatePlan, type GenerateResult } from '../generate'
+import { shouldOfferAutomaticRepair, updateRestPolicy, updateStaffingPolicy } from '../policies'
 import { repairPlan } from '../repair'
 import { assessAssignment, validateRevision } from '../validate'
 
@@ -1133,7 +1135,7 @@ describe('Staffing policy: a shift can require more than one person', () => {
     const result = autoSchedule('2026-10', people, { rules: withStaffing(3) })
     const dates = monthDates('2026-10')
 
-    expect(result.outcomeStatus).toBe('proven-infeasible')
+    expect(result.outcomeStatus).toBe('feasible-best-found')
     for (const date of dates) {
       const names = whoAllWork(result, date)
       expect(names).toEqual(['Ali', 'Ayşe'])
@@ -1142,6 +1144,10 @@ describe('Staffing policy: a shift can require more than one person', () => {
     const gaps = result.warnings.filter(warning => warning.type === 'NO_COVERAGE')
     expect(gaps).toHaveLength(dates.length)
     expect(gaps.every(warning => warning.data?.filled === 2 && warning.data?.required === 3)).toBe(true)
+    const checked = review('2026-10', people, result.assignments, withStaffing(3))
+    expect(checked.publishable).toBe(true)
+    expect(checked.hardErrors).toEqual([])
+    expect(checked.warnings.some(warning => warning.type === 'NO_COVERAGE')).toBe(true)
   })
 
   it('does not give both slots to the person who is furthest behind', () => {
@@ -1177,7 +1183,10 @@ describe('Staffing policy: a shift can require more than one person', () => {
     expect(whoAllWork(result, '2026-10-01')).toEqual(['Ali', 'Ayşe'])
     expect(whoAllWork(result, '2026-10-02')).toEqual([])
     expect(result.warnings.some(warning => warning.type === 'NO_COVERAGE' && warning.date === '2026-10-02')).toBe(true)
-    expect(result.outcomeStatus).toBe('proven-infeasible')
+    expect(result.outcomeStatus).toBe('feasible-best-found')
+    const checked = review('2026-10', [person('Ali'), person('Ayşe')], result.assignments, withNextDayOff(withStaffing(2)))
+    expect(checked.publishable).toBe(true)
+    expect(checked.hardErrors).toEqual([])
   })
 
   it('still requires the qualification on every slot of a multi-person shift', () => {
@@ -1213,5 +1222,119 @@ describe('Staffing policy: a shift can require more than one person', () => {
     expect(duplicated.hardErrors.some(error => error.kind === 'duplicate-date' && error.personId === 'Ali')).toBe(true)
     expect(distinct.publishable).toBe(true)
     expect(distinct.hardErrors).toEqual([])
+  })
+
+  it('removes a person from a shift when Ata is used again, and does not fill the other slot', () => {
+    const first = toggleShiftAssignment([], '2026-10-05', 'Ali', 2)
+    expect(first.map(item => item.allocatedTo)).toEqual(['Ali'])
+
+    const withPartner = toggleShiftAssignment(first, '2026-10-05', 'Ayşe', 2)
+    expect(withPartner.map(item => item.allocatedTo).sort()).toEqual(['Ali', 'Ayşe'])
+
+    const removed = toggleShiftAssignment(withPartner, '2026-10-05', 'Ali', 2)
+    expect(removed.map(item => item.allocatedTo)).toEqual(['Ayşe'])
+
+    const again = toggleShiftAssignment(removed, '2026-10-05', 'Ayşe', 2)
+    expect(again).toEqual([])
+  })
+
+  it('keeps a half-staffed shift publishable until an explicit plan fills the open slot', () => {
+    const people = [person('Ali'), person('Ayşe'), person('Can')]
+    const rules = withStaffing(2)
+    const manual = toggleShiftAssignment([], '2026-10-05', 'Ali', 2)
+    const checked = review('2026-10', people, manual, rules)
+
+    expect(manual).toHaveLength(1)
+    expect(checked.publishable).toBe(true)
+    expect(checked.hardErrors).toEqual([])
+    expect(checked.warnings.some(warning => warning.type === 'NO_COVERAGE' && warning.date === '2026-10-05')).toBe(true)
+    expect(shouldOfferAutomaticRepair(checked.warnings, checked.hardErrors)).toBe(false)
+    expect(shouldOfferAutomaticRepair([{ type: 'NEXT_DAY_OFF' }], [])).toBe(true)
+
+    const filled = autoSchedule('2026-10', people, { rules, keep: manual })
+    const names = whoAllWork(filled, '2026-10-05')
+    expect(names).toContain('Ali')
+    expect(names).toHaveLength(2)
+    expect(new Set(names).size).toBe(2)
+  })
+})
+
+describe('Dated policies can be edited after they are created', () => {
+  it('changes a staffing policy headcount and effective date, then staffs from the new date', () => {
+    const original = [{
+      id: 'staff',
+      effectiveFrom: '2026-10-01',
+      requiredHeadcount: 1,
+    }]
+    expect(updateStaffingPolicy(original, {
+      id: 'missing',
+      effectiveFrom: '2026-01-01',
+      requiredHeadcount: 9,
+    })).toBe(original)
+
+    const edited = updateStaffingPolicy(original, {
+      id: 'staff',
+      effectiveFrom: '2026-10-15',
+      requiredHeadcount: 2.8,
+    })
+    expect(edited).toEqual([{
+      id: 'staff',
+      effectiveFrom: '2026-10-15',
+      requiredHeadcount: 2,
+    }])
+
+    const result = autoSchedule('2026-10', [person('Ali'), person('Ayşe'), person('Can')], {
+      rules: roster({ staffingPolicies: edited }),
+    })
+    expect(whoAllWork(result, '2026-10-14')).toHaveLength(1)
+    expect(whoAllWork(result, '2026-10-15')).toHaveLength(2)
+    expect(new Set(whoAllWork(result, '2026-10-15')).size).toBe(2)
+  })
+
+  it('changes a rest policy treatment and effective date, then keeps the next day free', () => {
+    const original = [{
+      id: 'rest',
+      effectiveFrom: '2020-01-01',
+      enabled: false,
+      nonworkingTreatment: 'none' as const,
+    }]
+    expect(updateRestPolicy(original, {
+      id: 'missing',
+      effectiveFrom: '2026-10-01',
+      enabled: true,
+      nonworkingTreatment: 'calendar-only',
+    })).toBe(original)
+
+    const turnedOff = updateRestPolicy([{
+      id: 'rest',
+      effectiveFrom: '2020-01-01',
+      enabled: true,
+      nonworkingTreatment: 'calendar-only',
+    }], {
+      id: 'rest',
+      effectiveFrom: '2020-01-01',
+      enabled: true,
+      nonworkingTreatment: 'none',
+    })
+    expect(turnedOff[0].enabled).toBe(false)
+
+    const edited = updateRestPolicy(original, {
+      id: 'rest',
+      effectiveFrom: '2026-10-01',
+      enabled: true,
+      nonworkingTreatment: 'calendar-only',
+    })
+    const people = [person('Ali'), person('Ayşe'), person('Can'), person('Deniz')]
+    const rules = withStaffing(2, roster({ restPolicies: edited }))
+    const result = autoSchedule('2026-10', people, {
+      rules,
+      keep: [
+        duty('2026-10-05', 'Ali', 'manual'),
+        duty('2026-10-05', 'Ayşe', 'manual'),
+      ],
+    })
+
+    expect(whoAllWork(result, '2026-10-05')).toEqual(['Ali', 'Ayşe'])
+    expect(whoAllWork(result, '2026-10-06')).toEqual(['Can', 'Deniz'])
   })
 })

@@ -114,10 +114,19 @@
   width: 100%;
 }
 
+.policy-item-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.policy-item-actions .btn {
+  width: auto;
+}
+
 @media (min-width: 640px) {
   .policy-list-head {
     display: grid;
-    grid-template-columns: 160px 1fr;
+    grid-template-columns: 160px 1fr auto;
     gap: var(--space-3);
     padding: var(--space-2) var(--space-4);
     background: var(--surface-2);
@@ -131,7 +140,7 @@
 
   .policy-item {
     display: grid;
-    grid-template-columns: 160px 1fr;
+    grid-template-columns: 160px 1fr auto;
     align-items: center;
     gap: var(--space-3);
   }
