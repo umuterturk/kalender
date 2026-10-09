@@ -10,6 +10,7 @@ function roster(weekendHolidayDefault = true): Roster {
     historyStartDate: '2024-01-01',
     weekendHolidayDefault,
     restPolicies: [],
+    staffingPolicies: [],
   }
 }
 

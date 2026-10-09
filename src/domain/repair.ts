@@ -16,7 +16,7 @@ import type {
   LeaveObligation, ActualShift, ScheduleWarning
 } from './types'
 import { isMemberOn, isUnavailableOn, hasRestObligationOn, isAvoidedOn } from './eligibility'
-import { monthDates } from './calendar'
+import { monthDates, requiredHeadcount } from './calendar'
 import { deriveAssignmentLeaves, mergeLeaves, deriveActualLeaves } from './leave'
 import { generatePlan } from './generate'
 
@@ -120,24 +120,28 @@ export function repairPlan(
   )
 
   for (const newA of result.assignments) {
-    const wasLocked = stillFeasibleLocked.find(a => a.date === newA.date)
-    if (!wasLocked) {
-      const owner = newA.allocatedTo ?? newA.personId ?? ''
-      const oldA = published.find(a => a.date === newA.date)
-      const oldOwner = oldA ? (oldA.allocatedTo ?? oldA.personId ?? '') : null
-      if (oldOwner && oldOwner !== owner) {
-        const alreadyRecorded = changedDates.find(c => c.date === newA.date)
-        if (!alreadyRecorded) {
-          changedDates.push({
-            date: newA.date,
-            previousPersonId: oldOwner,
-            newPersonId: owner,
-            reason: 'Reassigned to improve feasibility / fairness',
-          })
-        } else {
-          alreadyRecorded.newPersonId = owner
-        }
-      }
+    const owner = newA.allocatedTo ?? newA.personId ?? ''
+    const wasKept = stillFeasibleLocked.some(a =>
+      a.date === newA.date && (a.allocatedTo ?? a.personId ?? '') === owner
+    )
+    if (wasKept) continue
+    const oldOwners = published
+      .filter(a => a.date === newA.date)
+      .map(a => a.allocatedTo ?? a.personId ?? '')
+    if (oldOwners.includes(owner)) continue
+    const alreadyRecorded = changedDates.find(c => c.date === newA.date && !c.newPersonId)
+    if (alreadyRecorded) {
+      alreadyRecorded.newPersonId = owner
+    } else if (!changedDates.some(c => c.date === newA.date && c.newPersonId === owner)) {
+      const previous = oldOwners.find(id => !result.assignments.some(a =>
+        a.date === newA.date && (a.allocatedTo ?? a.personId ?? '') === id
+      )) ?? null
+      changedDates.push({
+        date: newA.date,
+        previousPersonId: previous,
+        newPersonId: owner,
+        reason: 'Reassigned to improve feasibility / fairness',
+      })
     }
   }
 
@@ -171,14 +175,19 @@ export function resolveMonth(
 ): RepairResult {
   let assignments = revision.assignments
   let leaves = outsideLeaves
-  const original = new Map(revision.assignments.map(a => [a.date, a.allocatedTo ?? a.personId ?? '']))
+  const originalOwners = (date: IsoDate) => revision.assignments
+    .filter(a => a.date === date)
+    .map(a => a.allocatedTo ?? a.personId ?? '')
+    .filter(Boolean)
+    .sort()
+    .join(',')
 
   for (let pass = 0; pass < 12; pass++) {
     const actualLeaves = deriveActualLeaves(existingActuals, roster, people)
     const assignmentLeaves = deriveAssignmentLeaves(assignments, roster, people)
     leaves = mergeLeaves(mergeLeaves(actualLeaves, outsideLeaves), assignmentLeaves)
 
-    const broken = new Set<IsoDate>()
+    const broken = new Set<string>()
     for (const a of assignments) {
       if (a.locked) continue
       const owner = a.allocatedTo ?? a.personId ?? ''
@@ -193,12 +202,12 @@ export function resolveMonth(
           isAvoidedOn(person, a.date) ||
           hasRestObligationOn(owner, a.date, restFromElsewhere)
         ))
-      if (violates) broken.add(a.date)
+      if (violates) broken.add(`${a.date}:${owner}`)
     }
 
     if (broken.size === 0) break
 
-    const keep = assignments.filter(a => !broken.has(a.date))
+    const keep = assignments.filter(a => !broken.has(`${a.date}:${a.allocatedTo ?? a.personId ?? ''}`))
     const filled = generatePlan(
       revision.month, people, roster, overrides, existingActuals, keep,
       mergeLeaves(actualLeaves, outsideLeaves),
@@ -215,21 +224,37 @@ export function resolveMonth(
   }
 
   const changedDates: ChangedDate[] = []
-  const allDates = new Set<IsoDate>([...original.keys(), ...assignments.map(a => a.date)])
+  const allDates = new Set<IsoDate>([
+    ...revision.assignments.map(a => a.date),
+    ...assignments.map(a => a.date),
+  ])
   for (const date of allDates) {
-    const origOwner = original.get(date) ?? null
-    const newA = assignments.find(a => a.date === date)
-    const newOwner = newA ? (newA.allocatedTo ?? newA.personId ?? '') : null
+    const origOwner = originalOwners(date) || null
+    const newOwner = assignments
+      .filter(a => a.date === date)
+      .map(a => a.allocatedTo ?? a.personId ?? '')
+      .filter(Boolean)
+      .sort()
+      .join(',') || null
     if (origOwner !== newOwner) {
       changedDates.push({ date, previousPersonId: origOwner, newPersonId: newOwner, reason: 'Resolved' })
     }
   }
 
-  // Build a draft revision to derive warnings
   const infeasibleDates = monthDates(revision.month).filter(d => {
-    const covered = assignments.some(a => a.date === d)
-    const actual = existingActuals.some(a => a.date === d && a.status !== 'cancelled')
-    return !covered && !actual
+    if (d < roster.historyStartDate) return false
+    const ids = new Set<string>()
+    for (const a of assignments) {
+      if (a.date !== d) continue
+      const id = a.allocatedTo ?? a.personId ?? ''
+      if (id) ids.add(id)
+    }
+    for (const actual of existingActuals) {
+      if (actual.date !== d || actual.status === 'cancelled') continue
+      const id = actual.plannedPersonId ?? actual.actualPersonId
+      if (id) ids.add(id)
+    }
+    return ids.size < requiredHeadcount(d, roster)
   })
 
   return {

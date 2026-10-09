@@ -8,6 +8,7 @@ import { localToday } from '../../domain/calendar'
 import { useI18n } from '../../i18n'
 import { trackEvent } from '../../analytics'
 import { RestPoliciesSection } from '../policies/RestPoliciesSection'
+import { StaffingPoliciesSection } from '../policies/StaffingPoliciesSection'
 import { HolidaysSection } from './HolidaysSection'
 import { ImportExport } from './ImportExport'
 import { resetWelcomeSeen } from '../welcome/welcomeSeen'
@@ -76,7 +77,15 @@ export function SettingsPage() {
           enabled: restTreatment !== 'none',
           nonworkingTreatment: restTreatment,
         }]
+    const staffingPolicies = roster?.staffingPolicies?.length
+      ? roster.staffingPolicies
+      : [{
+          id: nanoid(),
+          effectiveFrom: historyStart,
+          requiredHeadcount: 1,
+        }]
     const next: Roster = {
+      ...(roster ?? {}),
       id: roster?.id ?? nanoid(),
       name: rosterName.trim(),
       country,
@@ -84,6 +93,7 @@ export function SettingsPage() {
       historyStartDate: historyStart,
       weekendHolidayDefault: weekendDefault,
       restPolicies,
+      staffingPolicies,
     }
     dispatch({ type: 'SETUP_ROSTER', payload: next })
     if (firstTime) {
@@ -202,6 +212,7 @@ export function SettingsPage() {
         {!firstTime && (
           <div className="settings-rules">
             <h2 className="section-title settings-rules-title">{t('policies.title')}</h2>
+            <StaffingPoliciesSection />
             <RestPoliciesSection />
           </div>
         )}

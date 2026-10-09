@@ -22,12 +22,12 @@ interface Props {
   people: Person[]
   roster: Roster
   overrides: CalendarDateOverride[]
-  assignment: Assignment | null
+  assignments: Assignment[]
   leaves: LeaveObligation[]
   draftAssignments: Assignment[]
   fairness: FairnessReport | null
   onAssign: (date: string, personId: string) => void
-  onUnassign: (date: string) => void
+  onUnassign: (date: string, personId?: string) => void
   onProhibit: (date: string, personId: string, prohibited: boolean) => void
   onAvoid: (date: string, personId: string, avoided: boolean) => void
   onSetPreference?: (date: string, personId: string, pref: PreferenceType | null) => void
@@ -38,7 +38,7 @@ interface Props {
 type PendingAction =
   | { kind: 'set'; personId: string }
   | { kind: 'no'; personId: string }
-  | { kind: 'clear' }
+  | { kind: 'clear'; personId: string }
   | { kind: 'vacation'; personId: string; on: boolean }
   | { kind: 'preference'; personId: string; pref: PreferenceType | null }
   | { kind: 'holiday'; want: boolean }
@@ -97,7 +97,7 @@ function reasonsForPending(
   pending: PendingAction,
   person: Person | null,
   date: string,
-  assignedPersonId: string | null,
+  assignedIds: Set<string>,
   leaves: LeaveObligation[],
   draftAssignments: Assignment[],
   isPast: boolean,
@@ -110,7 +110,7 @@ function reasonsForPending(
     return setWarningKeys(
       person,
       date,
-      assignedPersonId === person.id,
+      assignedIds.has(person.id),
       isOnVacation(person, date),
       hasRestObligationOn(person.id, date, leaves),
       getPreference(person, date),
@@ -121,14 +121,14 @@ function reasonsForPending(
   if (pending.kind === 'no') {
     const keys: MessageKey[] = []
     if (isPast) keys.push('day.warnPast')
-    if (assignedPersonId === person.id) keys.push('day.warnNoOnSet')
+    if (assignedIds.has(person.id)) keys.push('day.warnNoOnSet')
     return keys
   }
   return isPast ? ['day.warnPast'] : []
 }
 
 export function DaySheet({
-  date, people, roster, overrides, assignment, leaves, draftAssignments, fairness,
+  date, people, roster, overrides, assignments, leaves, draftAssignments, fairness,
   onAssign, onUnassign, onProhibit, onAvoid, onSetPreference, onSetOfficialHoliday,
   conflictNotes = [],
 }: Props) {
@@ -141,7 +141,8 @@ export function DaySheet({
   const typeCopy = dayTypeKeys(dayType)
   const isPast = date < localToday()
 
-  const assignedPersonId = assignment ? (assignment.allocatedTo ?? assignment.personId) : null
+  const dayAssignments = assignments.filter(a => a.date === date)
+  const assignedIds = new Set(dayAssignments.map(ownerId).filter(Boolean))
 
   const restOblsOnDate = leaves.filter(l =>
     l.immediateRestDate === date || l.compensatoryLeaveDate === date
@@ -155,16 +156,14 @@ export function DaySheet({
   const pendingPersonId = pending && 'personId' in pending ? pending.personId : null
   const pendingPerson = pendingPersonId
     ? people.find(p => p.id === pendingPersonId) ?? null
-    : pending?.kind === 'clear' && assignedPersonId
-      ? people.find(p => p.id === assignedPersonId) ?? null
-      : null
+    : null
 
   const pendingReasons = pending
     ? reasonsForPending(
         pending,
         pendingPerson,
         date,
-        assignedPersonId,
+        assignedIds,
         leaves,
         draftAssignments,
         isPast,
@@ -187,7 +186,7 @@ export function DaySheet({
         else onAvoid(date, pending.personId, true)
         break
       case 'clear':
-        onUnassign(date)
+        onUnassign(date, pending.personId)
         break
       case 'vacation':
         onProhibit(date, pending.personId, pending.on)
@@ -268,30 +267,37 @@ export function DaySheet({
         </div>
       )}
 
-      {assignment && (
-        <div className="current-assignment">
-          <div className="current-label">{t('day.assigned')}</div>
-          <div className="current-person">
-            {people.find(p => p.id === assignedPersonId)?.name ?? t('common.unknown')}
-            {assignment.source === 'manual' && <span className="lock-badge" style={{ background: 'var(--amber, #f59e0b)' }}>{t('day.manual')}</span>}
-            {assignment.locked && assignment.source !== 'manual' && <span className="lock-badge">{t('day.locked')}</span>}
-          </div>
-          {assignment.explanation && (
-            <div className="text-xs text-ink-3" style={{ marginTop: 4 }}>
-              {formatDayType(dayType)} {t('day.balance')}: {assignment.explanation.winnerBalance.toFixed(2)} · {t('day.overall')}: {assignment.explanation.winnerOverallBalance.toFixed(2)}
-              {assignment.explanation.preferenceUsed && ` · ${t('day.preference')}: ${assignment.explanation.preferenceUsed}`}
+      {dayAssignments.map(assignment => {
+        const assignedPersonId = ownerId(assignment)
+        return (
+          <div key={assignedPersonId || assignment.date} className="current-assignment">
+            <div className="current-label">{t('day.assigned')}</div>
+            <div className="current-person">
+              {people.find(p => p.id === assignedPersonId)?.name ?? t('common.unknown')}
+              {assignment.source === 'manual' && <span className="lock-badge" style={{ background: 'var(--amber, #f59e0b)' }}>{t('day.manual')}</span>}
+              {assignment.locked && assignment.source !== 'manual' && <span className="lock-badge">{t('day.locked')}</span>}
             </div>
-          )}
-          <div className="current-actions">
-            <button
-              className="btn btn-ghost text-sm text-red"
-              onClick={() => requestOrRun({ kind: 'clear' }, () => onUnassign(date), isPast)}
-            >
-              {t('day.clear')}
-            </button>
+            {assignment.explanation && (
+              <div className="text-xs text-ink-3" style={{ marginTop: 4 }}>
+                {formatDayType(dayType)} {t('day.balance')}: {assignment.explanation.winnerBalance.toFixed(2)} · {t('day.overall')}: {assignment.explanation.winnerOverallBalance.toFixed(2)}
+                {assignment.explanation.preferenceUsed && ` · ${t('day.preference')}: ${assignment.explanation.preferenceUsed}`}
+              </div>
+            )}
+            <div className="current-actions">
+              <button
+                className="btn btn-ghost text-sm text-red"
+                onClick={() => requestOrRun(
+                  { kind: 'clear', personId: assignedPersonId },
+                  () => onUnassign(date, assignedPersonId),
+                  isPast,
+                )}
+              >
+                {t('day.clear')}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })}
 
       <div className="candidate-section">
         <div className="section-title">{t('day.peopleThisDay')}</div>
@@ -302,8 +308,9 @@ export function DaySheet({
           <div className="empty-state text-sm text-ink-3">{t('day.addPeopleFirst')}</div>
         )}
         {people.map(person => {
-          const assigned = assignedPersonId === person.id
-          const pinned = assigned && !!assignment && (assignment.locked || assignment.source === 'manual')
+          const assigned = assignedIds.has(person.id)
+          const mine = dayAssignments.find(a => ownerId(a) === person.id)
+          const pinned = assigned && !!mine && (mine.locked || mine.source === 'manual')
           const vacation = isOnVacation(person, date)
           const pref = getPreference(person, date)
           const member = isMemberOn(person, date) || date < roster.historyStartDate

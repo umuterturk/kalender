@@ -31,7 +31,7 @@ import type {
   LeaveObligation, PlanRevision, DayType, BucketFairness, FairnessProjection,
   DutyRequirements
 } from './types'
-import { addDays, isHoliday, inHalfOpenRange } from './calendar'
+import { addDays, isHoliday, inHalfOpenRange, requiredHeadcount } from './calendar'
 import { isMemberOn, isOnVacation, holdsQualification } from './eligibility'
 import { longHolidayBlocks } from './shiftQuality'
 
@@ -163,36 +163,52 @@ function computeWindow(
 
   const blocks = buildBlockInfo(window.start, window.end, roster, overrides)
 
-  // Build lookup: date → allocation owner
-  // Priority: actual (planned person in ActualShift, which records the original owner)
-  // For open draft month: use candidateRevision.assignments (allocatedTo)
-  // For prior months: use priorAssignments (allocatedTo)
-  const ownerByDate = new Map<IsoDate, string>()
+  // date → distinct allocation owners.
+  // A later source replaces an earlier one for that date (it does not append):
+  // draft assignments replace actuals, which replace prior assignments.
+  // Within one source, every distinct person on the shift receives credit.
+  const ownersByDate = new Map<IsoDate, string[]>()
 
-  // Prior published months
+  function putOwners(date: IsoDate, owner: string) {
+    if (date < window.start || date >= window.end || !owner) return
+    const list = ownersByDate.get(date) ?? []
+    if (!list.includes(owner)) list.push(owner)
+    ownersByDate.set(date, list)
+  }
+
+  function replaceOwners(dates: IsoDate[], ownersFor: (date: IsoDate) => string[]) {
+    const touched = new Set(dates)
+    for (const date of touched) {
+      if (date < window.start || date >= window.end) continue
+      const owners = ownersFor(date).filter(Boolean)
+      const distinct: string[] = []
+      for (const owner of owners) {
+        if (!distinct.includes(owner)) distinct.push(owner)
+      }
+      if (distinct.length > 0) ownersByDate.set(date, distinct)
+    }
+  }
+
   for (const a of priorAssignments) {
-    if (a.date >= window.start && a.date < window.end) {
-      ownerByDate.set(a.date, a.allocatedTo ?? a.personId ?? '')
-    }
+    putOwners(a.date, a.allocatedTo ?? a.personId ?? '')
   }
 
-  // Actuals override (for published months: plannedPersonId is the fairness owner)
-  for (const a of actuals) {
-    if (a.status === 'cancelled') continue
-    if (a.date < window.start || a.date >= window.end) continue
-    // plannedPersonId is who was allocated; actualPersonId is who performed.
-    // Fairness credit always goes to the allocation owner (plannedPersonId).
-    const owner = a.plannedPersonId ?? a.actualPersonId
-    ownerByDate.set(a.date, owner)
-  }
+  const actualDates = [...new Set(
+    actuals.filter(a => a.status !== 'cancelled').map(a => a.date)
+  )]
+  replaceOwners(actualDates, date =>
+    actuals
+      .filter(a => a.date === date && a.status !== 'cancelled')
+      .map(a => a.plannedPersonId ?? a.actualPersonId)
+  )
 
-  // Open draft month (projected)
   if (candidateRevision) {
-    for (const a of candidateRevision.assignments) {
-      if (a.date < window.start || a.date >= window.end) continue
-      // Draft assignments: allocatedTo is the fairness owner
-      ownerByDate.set(a.date, a.allocatedTo ?? a.personId ?? '')
-    }
+    const draftDates = [...new Set(candidateRevision.assignments.map(a => a.date))]
+    replaceOwners(draftDates, date =>
+      candidateRevision.assignments
+        .filter(a => a.date === date)
+        .map(a => a.allocatedTo ?? a.personId ?? '')
+    )
   }
 
   const dates = datesInHalfOpen(window.start, window.end)
@@ -212,23 +228,24 @@ function computeWindow(
     if (eligible.length === 0) continue
 
     const totalCapacity = eligible.reduce((s, p) => s + (p.capacity ?? 1), 0)
-    const owner = ownerByDate.get(date)
+    const headcount = requiredHeadcount(date, roster, dutyRequirements)
+    const owners = ownersByDate.get(date) ?? []
 
     for (const p of eligible) {
       const accum = accums.get(p.id)!
       const share = (p.capacity ?? 1) / totalCapacity
-      accum[dayType].expected += share
+      // A shift staffed by N people is N allocations of this day type.
+      accum[dayType].expected += headcount * share
     }
 
-    if (owner) {
+    for (const owner of owners) {
       const accum = accums.get(owner)
-      if (accum) {
-        accum[dayType].actual += 1
-        if (block) {
-          accum.blocksTouched.add(block.id)
-          if (dayType === 'HN' || dayType === 'HH') {
-            accum.holidayShifts += 1
-          }
+      if (!accum) continue
+      accum[dayType].actual += 1
+      if (block) {
+        accum.blocksTouched.add(block.id)
+        if (dayType === 'HN' || dayType === 'HH') {
+          accum.holidayShifts += 1
         }
       }
     }
@@ -377,16 +394,16 @@ export function recentCategoryBlockExposure(
     const touched = new Set<string>()
 
     for (const date of datesInBlock) {
-      // Check actuals first (authoritative for past)
-      const actual = actuals.find(a => a.date === date && a.status !== 'cancelled')
-      if (actual) {
-        const owner = actual.plannedPersonId ?? actual.actualPersonId
-        if (owner) touched.add(owner)
+      const dayActuals = actuals.filter(a => a.date === date && a.status !== 'cancelled')
+      if (dayActuals.length > 0) {
+        for (const actual of dayActuals) {
+          const owner = actual.plannedPersonId ?? actual.actualPersonId
+          if (owner) touched.add(owner)
+        }
         continue
       }
-      // Then assignments
-      const asgn = allAssignments.find(a => a.date === date)
-      if (asgn) {
+      for (const asgn of allAssignments) {
+        if (asgn.date !== date) continue
         const owner = asgn.allocatedTo ?? asgn.personId ?? ''
         if (owner) touched.add(owner)
       }

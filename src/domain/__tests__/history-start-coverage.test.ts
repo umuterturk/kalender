@@ -11,6 +11,7 @@ const roster: Roster = {
   historyStartDate: '2026-10-05',
   weekendHolidayDefault: true,
   restPolicies: [],
+  staffingPolicies: [],
 }
 
 const people: Person[] = [{
